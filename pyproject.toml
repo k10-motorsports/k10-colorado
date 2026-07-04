@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "k10-colorado"
+version = "0.1.0"
+description = "K10 Colorado — accurate standalone Assetto Corsa builds of Colorado race circuits, designed live in Blender."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Core pipeline deps. NOTE: `bpy` (Blender's Python API) is NOT installed here — it is
+# provided by the Blender 4.x runtime when scripts run via `blender --background --python`.
+# The AC Blender Tools (kn5 export) addon is also installed inside Blender, not via pip.
+dependencies = [
+  "requests>=2.31",   # Overpass / USGS HTTP
+  "pyproj>=3.6",      # lat/lon -> local-meter projection
+  "shapely>=2.0",     # centerline / ribbon geometry ops
+  "numpy>=1.26",      # arrays, heightfields
+  "scipy>=1.11",      # resampling & smoothing splines
+  "rasterio>=1.3",    # DEM (GeoTIFF) I/O  — needs system GDAL
+  "trimesh>=4.0",     # mesh validation
+  "astral>=3.2",      # solar azimuth/elevation for lighting
+]
+
+[project.scripts]
+# Optional phase-6 step: install a built track into a local Assetto Corsa content/tracks folder.
+prodrive-ac-install = "scripts.ac.install:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[tool.setuptools.packages.find]
+include = ["scripts*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

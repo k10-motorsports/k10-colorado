@@ -1,0 +1,206 @@
+{
+  "name": "IMI Motorsports Complex",
+  "slug": "imi_motorsports",
+  "version": "0.1.0",
+  "location": {
+    "lat": 40.0423,
+    "lon": -104.9482,
+    "timezone": "America/Denver",
+    "city": "Dacono",
+    "country": "United States",
+    "_note": "From the on-image labels 'IMI Motorsports Complex' + 'Summit Blvd' \u2192 5074 Summit Blvd, Dacono CO. Used for sun/lighting; geometry comes from the aerial trace."
+  },
+  "source": {
+    "type": "aerial",
+    "screenshot": "source/imi-aerial.jpeg",
+    "nearby_roads": [
+      "Summit Blvd"
+    ],
+    "_doc": "Aerial-screenshot front-end: trace the asphalt ribbon off a satellite view, georeference it from two corner control points, emit data/centerline.geojson. control_points lon/lat make it elevation-correct (USGS 3DEP samples real ground). trace_px/control_points accept normalised [0,1] image fractions OR absolute pixels.",
+    "control_points": [
+      {
+        "px": [
+          0.18,
+          0.14
+        ],
+        "lonlat": [
+          -104.9501,
+          40.04498
+        ],
+        "_corner": "NW"
+      },
+      {
+        "px": [
+          0.86,
+          0.84
+        ],
+        "lonlat": [
+          -104.94607,
+          40.03976
+        ],
+        "_corner": "SE"
+      }
+    ],
+    "_control_points_note": "ESTIMATED corners (published address ~40.0423,-104.9482 at an assumed ~0.42 m/px). Replace each lonlat with a dropped Google Maps pin (?q=lat,lon) on the matching corner for survey-accurate georeferencing + elevation.",
+    "trace_px": [
+      [
+        0.84,
+        0.5
+      ],
+      [
+        0.804,
+        0.422
+      ],
+      [
+        0.748,
+        0.367
+      ],
+      [
+        0.688,
+        0.334
+      ],
+      [
+        0.639,
+        0.313
+      ],
+      [
+        0.603,
+        0.289
+      ],
+      [
+        0.573,
+        0.251
+      ],
+      [
+        0.537,
+        0.202
+      ],
+      [
+        0.49,
+        0.158
+      ],
+      [
+        0.432,
+        0.135
+      ],
+      [
+        0.372,
+        0.145
+      ],
+      [
+        0.323,
+        0.188
+      ],
+      [
+        0.291,
+        0.252
+      ],
+      [
+        0.276,
+        0.321
+      ],
+      [
+        0.267,
+        0.385
+      ],
+      [
+        0.257,
+        0.442
+      ],
+      [
+        0.24,
+        0.5
+      ],
+      [
+        0.22,
+        0.567
+      ],
+      [
+        0.21,
+        0.645
+      ],
+      [
+        0.22,
+        0.725
+      ],
+      [
+        0.257,
+        0.791
+      ],
+      [
+        0.316,
+        0.826
+      ],
+      [
+        0.382,
+        0.825
+      ],
+      [
+        0.443,
+        0.796
+      ],
+      [
+        0.49,
+        0.758
+      ],
+      [
+        0.526,
+        0.729
+      ],
+      [
+        0.563,
+        0.72
+      ],
+      [
+        0.61,
+        0.725
+      ],
+      [
+        0.673,
+        0.729
+      ],
+      [
+        0.744,
+        0.712
+      ],
+      [
+        0.805,
+        0.663
+      ],
+      [
+        0.841,
+        0.587
+      ],
+      [
+        0.84,
+        0.5
+      ]
+    ],
+    "_trace_px_note": "Ordered centerline in normalised image coords \u2014 an approximate hand-trace placeholder for this sample. For accuracy, convert the screenshot to PNG and let build_aerial auto-trace the asphalt mask, or click the centerline more densely. JPEG cannot be auto-traced (no stdlib JPEG decoder)."
+  },
+  "loop": true,
+  "default_width_m": 8.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "full_course",
+      "ai": "ai/full_course",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ]
+  },
+  "mirror_x": true
+}

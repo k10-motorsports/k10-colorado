@@ -1,0 +1,122 @@
+{
+  "name": "Sand Creek Raceway",
+  "slug": "sand_creek_raceway",
+  "version": "0.15.3",
+  "mirror_x": true,
+  "capture": {
+    "_doc": "How committed source/realworld_capture.json evidence is consumed. use_elevation applies the captured road-surface altitude to the centerline Y. evidence.corrected_elevation now reins in the phone's GPS/baro noise: it rejects transient spikes (the phone physically fell on Sand Creek ~idx 1240), gates corrections to ~0 on near-flat terrain, and permits a metre-scale lift ONLY inside a declared 'bridges' span. So off a bridge the road follows the accurate USGS 3DEP heightfield (the old fake bumps on 56th/45th/Sand Creek and the N Ash drop collapse to sub-metre); at a real crossing the level deck is preserved. Captured TEXTURES and lateral evidence are unaffected. 'bridges' = [{center_m, len_m}] in lap-station metres (same convention as road_profile.dips) \u2014 the ONLY genuine deck crossings. The route crosses the ACTUAL Sand Creek twice (0.9 m from the mapped creek line both times): E 56th over Sand Creek (station ~2485; bare earth dips ~7 m to the creek bed, the LOWEST point on the route \u2014 the deck stays level on the approach to the corkscrew turn) and Quebec over Sand Creek (station ~5950; bare earth dips ~6 m). Both also get visual bridge structure (parapets/piers) from build_env._creek_bridge.",
+    "use_elevation": true,
+    "bridges": [
+      {
+        "name": "e56th_over_sand_creek",
+        "center_m": 2485,
+        "len_m": 100
+      },
+      {
+        "name": "quebec_over_sand_creek",
+        "center_m": 5950,
+        "len_m": 130
+      }
+    ]
+  },
+  "road_text": {
+    "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
+    "mode": "along",
+    "cap_m": 4.8,
+    "min_leg_m": 200,
+    "flip_read": false,
+    "flip_up": false
+  },
+  "road_profile": {
+    "_doc": "Corkscrew dips/cambers REMOVED \u2014 Sand Creek elevation now comes from real USGS 3DEP + capture (user: the hand-authored corkscrew sucks). Re-add dips/cambers here to bring it back.",
+    "dips": [],
+    "cambers": []
+  },
+  "location": {
+    "lat": 39.7839155,
+    "lon": -104.9398905,
+    "timezone": "America/Denver",
+    "city": "Commerce City",
+    "country": "United States"
+  },
+  "source": {
+    "type": "kml",
+    "kml": "source/Sand Creek Raceway Drive-3.kml",
+    "kml_overrides": []
+  },
+  "route": {
+    "bbox": [
+      39.773,
+      -104.945,
+      39.802,
+      -104.893
+    ],
+    "connectors": {
+      "cut_48th": [
+        "East 48th Avenue"
+      ]
+    }
+  },
+  "loop": true,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "road_edge": {
+    "_doc": "Urban street edge swept along every road: road -> raised curb -> flat sidewalk -> graded grass as ONE continuous profile sharing seam vertices with the road and the grass, so nothing hovers (scripts/geometry/ribbon.py:curb_sidewalk; physical 1KERB_sidewalk). Omit (or profile != 'sidewalk') for the default asphalt shoulder. curb_h/sidewalk_w/grade_w in metres.",
+    "profile": "sidewalk",
+    "curb_h": 0.05,
+    "sidewalk_w": 1.5,
+    "grade_w": 1.0,
+    "curb_face_w": 0.3
+  },
+  "scenery": {
+    "_doc": "Per-track foliage/scatter knobs read by scripts/environment/build_env.py. Defaults (shown) reproduce the original look; override per track (e.g. a desert track wants sparser, lower scrub). corridor_margin_m keeps ALL scatter this far clear of every road (main loop + connectors).",
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 28.0,
+    "tree_cap": 700,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 6.0,
+    "bush_density": 0.55,
+    "bush_off_min_m": 7.0,
+    "bush_off_span_m": 33.0,
+    "bush_size_min_m": 1.2,
+    "bush_size_span_m": 1.4,
+    "light_spacing_m": 48.0,
+    "powerline_spacing_m": 52.0,
+    "signs": {
+      "_doc": "Street-name blade signs at each major junction (from data/street_labels.json, same legs as the painted road decals). enabled=false drops them. flip_read/flip_up are one-bit fixes if the text reads mirrored or upside-down in-game (verify on the first Windows drive).",
+      "enabled": true,
+      "flip_read": false,
+      "flip_up": false
+    }
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": [],
+      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start. The 'interior' layout was dropped: its interior_grid connector was never defined, and layouts share one kn5 so a distinct interior circuit isn't achievable without splitting geometry."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ]
+  },
+  "kerb": {
+    "_about": "Racing-circuit kerbs: taller + rideable ramp on the lane side (vs the default 5cm street kerb).",
+    "height_m": 0.05,
+    "width_m": 1.4,
+    "top_frac": 0.6,
+    "edge_ramp": 0.4
+  }
+}

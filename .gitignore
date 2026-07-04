@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+
+# Blender + build artifacts (all regenerable from source + scripts)
+*.blend
+*.blend1
+tracks/*/blender/
+tracks/*/build/
+
+# heavy meshes / exports (never in git; kn5 ships via GitHub Releases)
+*.obj
+*.fbx
+*.kn5
+*.mtl
+*.tif
+
+# keep in git: tracks/*/track.config.json, tracks/*/source/**, tracks/*/data/centerline*.{geojson,json},
+# tracks/*/data/heightfield.* (real-elevation cache), and everything under scripts/ and blender/.

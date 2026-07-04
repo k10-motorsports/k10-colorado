@@ -1,0 +1,61 @@
+{
+  "name": "Aspen Racing Club",
+  "slug": "aspen",
+  "version": "0.1.0",
+  "mirror_x": true,
+  "loop": true,
+  "default_width_m": 9.0,
+  "location": {
+    "lat": 39.76,
+    "lon": -105.05,
+    "timezone": "America/Denver",
+    "city": "Colorado",
+    "country": "United States"
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "kerb": {
+    "height_m": 0.08,
+    "width_m": 1.2,
+    "top_frac": 0.6,
+    "edge_ramp": 0.4
+  },
+  "scenery": {
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 45,
+    "tree_cap": 150,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 9,
+    "bush_density": 0.25,
+    "bush_off_min_m": 6,
+    "bush_off_span_m": 22,
+    "bush_size_min_m": 1.0,
+    "bush_size_span_m": 1.2,
+    "light_spacing_m": 90
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ]
+  },
+  "source": {
+    "type": "kml",
+    "kml": "",
+    "_note": "centerline.geojson provided directly (traced)"
+  }
+}
