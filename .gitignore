@@ -19,3 +19,7 @@ tracks/*/build/
 
 # keep in git: tracks/*/track.config.json, tracks/*/source/**, tracks/*/data/centerline*.{geojson,json},
 # tracks/*/data/heightfield.* (real-elevation cache), and everything under scripts/ and blender/.
+
+# regenerable debug renders / audit (build outputs, not source)
+tracks/*/data/*.svg
+tracks/*/data/audit.json

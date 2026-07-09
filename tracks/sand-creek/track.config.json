@@ -4,8 +4,8 @@
   "version": "0.15.3",
   "mirror_x": true,
   "capture": {
-    "_doc": "How committed source/realworld_capture.json evidence is consumed. use_elevation applies the captured road-surface altitude to the centerline Y. evidence.corrected_elevation now reins in the phone's GPS/baro noise: it rejects transient spikes (the phone physically fell on Sand Creek ~idx 1240), gates corrections to ~0 on near-flat terrain, and permits a metre-scale lift ONLY inside a declared 'bridges' span. So off a bridge the road follows the accurate USGS 3DEP heightfield (the old fake bumps on 56th/45th/Sand Creek and the N Ash drop collapse to sub-metre); at a real crossing the level deck is preserved. Captured TEXTURES and lateral evidence are unaffected. 'bridges' = [{center_m, len_m}] in lap-station metres (same convention as road_profile.dips) \u2014 the ONLY genuine deck crossings. The route crosses the ACTUAL Sand Creek twice (0.9 m from the mapped creek line both times): E 56th over Sand Creek (station ~2485; bare earth dips ~7 m to the creek bed, the LOWEST point on the route \u2014 the deck stays level on the approach to the corkscrew turn) and Quebec over Sand Creek (station ~5950; bare earth dips ~6 m). Both also get visual bridge structure (parapets/piers) from build_env._creek_bridge.",
-    "use_elevation": true,
+    "_doc": "Sand Creek is a ROAD circuit stitched from real Commerce City streets, so its elevation is the REAL road-surface profile: USGS 3DEP sampled ALONG the real street centerline (3 m spacing), median-despiked + smoothed into a launch-free longitudinal grade, with the terrain conforming DOWN to that road. The phone's GPS/baro altitude is NOT used \u2014 it is too noisy on flat terrain and injected fake metre-scale bumps (56th/45th/Sand Creek Dr) and a phone-fell dip (~idx 1240); use_elevation=false ignores it. Captured TEXTURES and lateral evidence in realworld_capture.json ARE still consumed (do not delete the file). 'bridges' is RETAINED: evidence.level_bridge_decks uses it to hold a LEVEL deck (geometry only, no phone) over the two real Sand Creek crossings where bare-earth 3DEP dives into the creek bed \u2014 E 56th over Sand Creek (station ~2485, bare earth dips ~7 m) and Quebec over Sand Creek (station ~5950, ~6 m); both also get visual parapets/piers from build_env._creek_bridge. 'bridges' = [{center_m, len_m}] in lap-station metres.",
+    "use_elevation": false,
     "bridges": [
       {
         "name": "e56th_over_sand_creek",
@@ -91,7 +91,7 @@
     }
   },
   "origin": "centroid",
-  "true_north_rotation_deg": 0.0,
+  "true_north_rotation_deg": 180.0,
   "surfaces": {
     "road": "1ROAD",
     "grass": "GRASS",
@@ -110,7 +110,8 @@
       "morning",
       "noon",
       "golden_hour"
-    ]
+    ],
+    "grassfx": true
   },
   "kerb": {
     "_about": "Racing-circuit kerbs: taller + rideable ramp on the lane side (vs the default 5cm street kerb).",
