@@ -6,14 +6,14 @@
   "loop": true,
   "default_width_m": 10.0,
   "location": {
-    "lat": 39.691,
-    "lon": -104.911,
+    "lat": 38.59203,
+    "lon": -104.67678,
     "timezone": "America/Denver",
-    "city": "Colorado",
+    "city": "Fountain",
     "country": "United States"
   },
   "origin": "centroid",
-  "true_north_rotation_deg": 0.0,
+  "true_north_rotation_deg": 180.0,
   "surfaces": {
     "road": "1ROAD",
     "grass": "GRASS",
@@ -51,11 +51,17 @@
       "morning",
       "noon",
       "golden_hour"
-    ]
+    ],
+    "grassfx": true
   },
   "source": {
-    "type": "kml",
-    "kml": "",
-    "_note": "centerline.geojson provided directly (traced)"
+    "type": "from_track",
+    "track": "source/osm_fixes.json",
+    "_note": "Real PPIR infield ROAD COURSE at Pikes Peak International Raceway, Fountain CO. Stitched from OSM highway=raceway way 1134026184 (infield arc, both ends on the oval) + the oval arc of way 1134026181 connecting them = a ~2184 m (1.36 mi) roval loop. CW winding, resampled to 3 m via scripts.gps.from_track. Flat road course \u2014 elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking."
+  },
+  "road_profile": {
+    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "dips": [],
+    "cambers": []
   }
 }
