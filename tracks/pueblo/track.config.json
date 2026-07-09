@@ -1,0 +1,67 @@
+{
+  "name": "Pueblo Motorsports Park",
+  "slug": "pueblo_motorsports_park",
+  "version": "0.1.0",
+  "mirror_x": true,
+  "loop": true,
+  "default_width_m": 12.0,
+  "location": {
+    "lat": 38.303726,
+    "lon": -104.675683,
+    "timezone": "America/Denver",
+    "city": "Pueblo",
+    "country": "United States"
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 180.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "kerb": {
+    "height_m": 0.08,
+    "width_m": 1.2,
+    "top_frac": 0.6,
+    "edge_ramp": 0.4
+  },
+  "scenery": {
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 45,
+    "tree_cap": 150,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 9,
+    "bush_density": 0.25,
+    "bush_off_min_m": 6,
+    "bush_off_span_m": 22,
+    "bush_size_min_m": 1.0,
+    "bush_size_span_m": 1.2,
+    "light_spacing_m": 90
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ],
+    "grassfx": true
+  },
+  "source": {
+    "type": "from_track",
+    "track": "source/osm_fixes.json",
+    "_note": "Real 2.2-mi (~3510 m) paved ROAD COURSE at Pueblo Motorsports Park, 3733 N Pueblo Blvd, Pueblo CO. From OSM highway=raceway ways 558378826+558378823+558378824 (drag-strip staging spur excluded). Native ring winding is CW; fixes kept CW. Resampled to 3 m via scripts.gps.from_track. Flat/rolling road course \u2014 elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking (not an oval)."
+  },
+  "road_profile": {
+    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "dips": [],
+    "cambers": []
+  }
+}

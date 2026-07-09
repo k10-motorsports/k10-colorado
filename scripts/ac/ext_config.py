@@ -131,14 +131,21 @@ def generate(project_dir: str | Path) -> Path:
                 "Type = POND", ""]
 
     if has_lights:
-        out += ["; --- Streetlights: one light per post + glowing lamp at night ---------------",
+        # Tunable per track via lighting.streetlight in track.config.json. Defaults are a realistic warm
+        # streetlight, NOT the old blinding values (intensity 30 = daylight-bright; RANGE 38 m with posts
+        # ~48 m apart made the pools overlap into a continuous wash). Dial with intensity/range_m/emissive.
+        sl = (cfg_raw.get("lighting", {}) or {}).get("streetlight", {}) or {}
+        sl_i = sl.get("intensity", 5.0)     # CSP local-light intensity (was 30)
+        sl_r = sl.get("range_m", 24.0)      # reach in metres (was 38) — pools no longer fully overlap
+        sl_e = sl.get("emissive", 0.35)     # lamp-lens ksEmissive brightness 0..~1 (was 0.5)
+        out += ["; --- Streetlights: one light per cobra head + glowing lens at night ----------",
                 "[LIGHT_SERIES_STREETLIGHTS]",
                 "MESHES = LIGHTS",
-                "OFFSET = 0, 3.5, 0          ; lift the light toward the top of the ~9 m post",
-                "COLOR = 1.0, 0.82, 0.55, 30 ; warm sodium-ish, last value = intensity",
+                "OFFSET = 0, -0.1, 0         ; LIGHTS is the compact lamp head (~8.8 m); drop at the lens",
+                f"COLOR = 1.0, 0.82, 0.55, {sl_i} ; warm sodium; 4th = intensity (lighting.streetlight.intensity)",
                 "COLOR_OFF = 0, 0, 0, 0      ; fully off by day",
                 "CONDITION = NIGHT_SMOOTH    ; ramp on at dusk (CSP pre-shipped condition)",
-                "RANGE = 38",
+                f"RANGE = {sl_r}             ; metres (lighting.streetlight.range_m)",
                 "SPOT = 124",
                 "SPOT_SHARPNESS = 0.3",
                 "DIRECTION = 0, -1, 0        ; shine downward",
@@ -146,7 +153,7 @@ def generate(project_dir: str | Path) -> Path:
                 "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                "VALUE_0 = 255, 209, 166, 0.5  ; ksEmissive is 0-255 RGB + brightness (NOT 0..1!)",
+                f"VALUE_0 = 255, 209, 166, {sl_e}  ; lamp-lens glow: 0-255 RGB + brightness (lighting.streetlight.emissive)",
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 
