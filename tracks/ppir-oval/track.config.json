@@ -6,14 +6,14 @@
   "loop": true,
   "default_width_m": 15.0,
   "location": {
-    "lat": 39.69,
-    "lon": -104.91,
+    "lat": 38.591704,
+    "lon": -104.676701,
     "timezone": "America/Denver",
-    "city": "Colorado",
+    "city": "Fountain",
     "country": "United States"
   },
   "origin": "centroid",
-  "true_north_rotation_deg": 0.0,
+  "true_north_rotation_deg": 180.0,
   "surfaces": {
     "road": "1ROAD",
     "grass": "GRASS",
@@ -51,23 +51,31 @@
       "morning",
       "noon",
       "golden_hour"
-    ]
+    ],
+    "grassfx": true
   },
   "source": {
-    "type": "kml",
-    "kml": "",
-    "_note": "centerline.geojson provided directly (traced)"
+    "type": "from_track",
+    "track": "source/osm_oval_fixes.json",
+    "_note": "Re-sourced from real OSM highway=raceway way 1134026181 at Fountain, CO (reversed to CW winding), resampled to 3 m via scripts.gps.from_track. Real 1.03-mi D-oval; elevation from USGS 3DEP (real ~2 m sunken bowl, do not flatten)."
   },
   "road_profile": {
-    "_doc": "PPIR oval real banking = 10 deg in all four turns (RacingCircuits.info / Wikipedia). Constant roll around the 1-mi D-oval.",
+    "_doc": "Real PPIR banking ~10 deg in the two turn arcs (outside edge up), flat on the front/back straights. Turn stations derived from the re-sourced OSM oval's curvature: turn_1_2 ~60-513 m, turn_3_4 ~933-1356 m of the 1650 m lap; start/finish is on the front straight (station 0). NOT a whole-loop constant roll (that was the old cone/volcano). bank_deg sign verified empirically after build so the OUTSIDE edge is higher (negative lifts the outside on this reversed-CW OSM ring); flip sign if it domes inward.",
     "dips": [],
     "cambers": [
       {
-        "name": "oval_bank",
-        "start_m": 0,
-        "len_m": 3000,
-        "bank_deg": 10.0,
-        "ramp_m": 0
+        "name": "turn_1_2",
+        "start_m": 60,
+        "len_m": 453,
+        "bank_deg": -10.0,
+        "ramp_m": 50
+      },
+      {
+        "name": "turn_3_4",
+        "start_m": 933,
+        "len_m": 423,
+        "bank_deg": -10.0,
+        "ramp_m": 50
       }
     ]
   }

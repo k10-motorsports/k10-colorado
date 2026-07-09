@@ -287,7 +287,6 @@ def build(project_dir: str | Path) -> dict:
     # stretched). The cracking is irregular enough to hide the repeat.
     road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
-    grass = ribbon.grass_terrain(grid_xyz)
     # ROAD EDGE — config-gated. Default: a paved asphalt SHOULDER that ramps the lane edge down to the
     # terrain (kills the floating-ribbon hard edge). `road_edge.profile == "sidewalk"` instead sweeps a
     # continuous curb→sidewalk→grass profile that shares seam vertices with the road and the grass (urban
@@ -309,6 +308,13 @@ def build(project_dir: str | Path) -> dict:
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
+    # ANTI-POKE (mesh-audit check B): clamp the terrain grid below the FULL drivable edge (road + shoulder +
+    # corner runoff), THEN triangulate the grass. One-sided (only pushes pokes down; natural dips survive)
+    # and measured against the ACTUAL banked verts, so banked-turn inner edges and shoulder lips can't poke
+    # up through the ribbon. Must run after shoulder+runoff exist and before grass_terrain.
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + shoulder["vertices"] + runoff["vertices"],
+                                    clear=GRASS_CLEARANCE_M)
+    grass = ribbon.grass_terrain(grid_xyz)
     # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
     # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
     kerb_cfg = cfg_raw.get("kerb", {})

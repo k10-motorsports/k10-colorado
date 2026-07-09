@@ -232,6 +232,37 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
                 row[k] = (gx, tgt * (1 - t) + gy * t, gz)
 
 
+def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vertex],
+                             *, reach: float = 11.0, clear: float = 0.25, cell: float = 12.0) -> None:
+    """One-sided ANTI-POKE against the ACTUAL built road surface. For every terrain grid node within
+    ``reach`` m of a road vertex, if the node sits above ``road_y - clear`` push it DOWN to that level so
+    no grass triangle pokes up through the drivable ribbon. Never RAISES a node (natural dips survive).
+
+    Why against the built road verts (not the centerline): on a BANKED turn the inner edge rides metres
+    below the centre, so a centreline-based clamp leaves the inner edge poking; the real banked edge verts
+    are the true surface. Run AFTER road_ribbon (post-bank, post-lift) and conform, BEFORE grass_terrain.
+    Mutates ``grid_xyz`` in place. Mirror-agnostic: road_verts and grid_xyz must be in the SAME frame."""
+    from collections import defaultdict
+    buckets: dict[tuple[int, int], list[Vertex]] = defaultdict(list)
+    for x, y, z in road_verts:
+        buckets[(int(x // cell), int(z // cell))].append((x, y, z))
+    r2 = reach * reach
+    for row in grid_xyz:
+        for k in range(len(row)):
+            gx, gy, gz = row[k]
+            ci, cj = int(gx // cell), int(gz // cell)
+            lim = None
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for rx, ry, rz in buckets.get((ci + di, cj + dj), ()):
+                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= r2:
+                            t = ry - clear
+                            if lim is None or t < lim:
+                                lim = t
+            if lim is not None and gy > lim:
+                row[k] = (gx, lim, gz)
+
+
 def upsample_grid(grid: list[list[float]], meta: dict, factor: int) -> tuple[list[list[float]], dict]:
     """Bilinearly upsample the raw DEM height grid by an integer factor (finer spacing). Free (no
     re-sampling) and lossless on gentle terrain — a fine grid lets ``conform_terrain_to_road`` hug the

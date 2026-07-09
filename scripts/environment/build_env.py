@@ -163,9 +163,37 @@ def _billboard_cell(x, y, z, col, row, ncols, nrows, h, w, yaw=0.0):
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
-def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)
-    return {"vertices": [(x - r, y, z), (x + r, y, z), (x + r, y + h, z), (x - r, y + h, z)],
-            "tris": [(0, 1, 2), (0, 2, 3)]}
+def _streetlight(x, y, z, nx, nz, *, H=9.0, arm=1.6, r=0.14,
+                 head_w=0.5, head_l=0.28, head_h=0.28, droop=0.05):
+    """A cobra-head streetlight, split into two meshes so ONLY the lamp glows at night:
+      - shaft  = crossed vertical mast quads (read from any angle) + a thin horizontal cantilever arm
+                 reaching ``arm`` m road-ward along (nx, nz) — the NON-emissive LIGHTPOST material.
+      - lamphead = a small down-facing box at the arm tip near y+H — the emissive LIGHTS material that
+                 CSP lights up at night (see ext_config LIGHT_SERIES/MATERIAL_ADJUSTMENT_STREETLIGHTS).
+    (nx, nz) is the road-normal pointing FROM the pole TOWARD the road, so the arm overhangs the lane."""
+    # mast: two crossed quads (mirror the _utility_pole pattern) so the post is visible from any angle
+    v = [(x - r, y, z), (x + r, y, z), (x + r, y + H, z), (x - r, y + H, z),            # quad along X
+         (x, y, z - r), (x, y, z + r), (x, y + H, z + r), (x, y + H, z - r)]            # quad along Z
+    t = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    ax, az = x + nx * arm, z + nz * arm                       # arm tip out over the lane
+    px, pz = -nz * 0.08, nx * 0.08                            # thin arm half-width (perp to the arm)
+    b = len(v)
+    v += [(x + px, y + H, z + pz), (x - px, y + H, z - pz),
+          (ax - px, y + H - droop, az - pz), (ax + px, y + H - droop, az + pz)]
+    t += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    shaft = {"vertices": v, "tris": t}
+    # lamphead: a small down-facing box hung just under the arm tip
+    y1, y0 = y + H - droop, y + H - droop - head_h
+    hv = [(ax - head_w, y0, az - head_l), (ax + head_w, y0, az - head_l),
+          (ax + head_w, y0, az + head_l), (ax - head_w, y0, az + head_l),
+          (ax - head_w, y1, az - head_l), (ax + head_w, y1, az - head_l),
+          (ax + head_w, y1, az + head_l), (ax - head_w, y1, az + head_l)]
+    ht = [(0, 1, 2), (0, 2, 3),          # bottom (the luminaire lens, faces down)
+          (4, 6, 5), (4, 7, 6),          # top
+          (0, 4, 5), (0, 5, 1), (1, 5, 6), (1, 6, 2),   # sides
+          (2, 6, 7), (2, 7, 3), (3, 7, 4), (3, 4, 0)]
+    lamphead = {"vertices": hv, "tris": ht}
+    return shaft, lamphead
 
 
 def _utility_pole(x, y, z, tx, tz, *, H=11.0, ch=9.6, arm=1.4, r=0.16):
@@ -652,7 +680,9 @@ def build(project_dir: str | Path) -> dict:
     bushes = _merge(bush_meshes)
 
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
-    light_meshes, nlights = [], 0
+    # Split geometry: the mast (LIGHTPOST, dark) and the lamp head (LIGHTS, emissive) are separate meshes
+    # so only the head glows at night — not the whole 9 m stick (the old single-quad LIGHTS defect).
+    lightpost_meshes, lighthead_meshes, nlights = [], [], 0
     l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
     for i in range(1, len(loop)):
@@ -668,9 +698,12 @@ def build(project_dir: str | Path) -> dict:
             px, pz = x - nx * off, z - nz * off
             if on_surface(px, pz):                     # verge offset landed on a crossing/fold-back road — skip
                 continue
-            light_meshes.append(_post(px, y, pz))
+            shaft, lamphead = _streetlight(px, y, pz, nx, nz)   # arm reaches +n back over the lane
+            lightpost_meshes.append(shaft)
+            lighthead_meshes.append(lamphead)
             nlights += 1
-    lights = _merge(light_meshes)
+    lightposts = _merge(lightpost_meshes)
+    lightheads = _merge(lighthead_meshes)
 
     # --- overhead power lines (poles + sagging cables) — ubiquitous in industrial Commerce City; the
     #     real-world capture shows them in nearly every frame. Poles on the LEFT verge (streetlights are
@@ -826,7 +859,8 @@ def build(project_dir: str | Path) -> dict:
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
-        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
+        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes,
+                   lightposts, lightheads,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -836,7 +870,8 @@ def build(project_dir: str | Path) -> dict:
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
-               ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
+               ("TREES", "grass", trees), ("BUSHES", "grass", bushes),
+               ("LIGHTPOST", "road", lightposts), ("LIGHTS", "road", lightheads),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
@@ -851,7 +886,8 @@ def build(project_dir: str | Path) -> dict:
                 ("roofs", (0.30, 0.36, 0.48), bld_roof["ROOFS"]), ("rfmetal", (0.55, 0.57, 0.60), bld_roof["RFMETAL"]),
                 ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
-                ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights),
+                ("trees", (0.18, 0.42, 0.16), trees),
+                ("lightpost", (0.30, 0.31, 0.33), lightposts), ("lights", (0.95, 0.85, 0.35), lightheads),
                 ("poles", (0.34, 0.24, 0.16), poles), ("wires", (0.10, 0.10, 0.12), wires),
                 ("signs", (0.10, 0.45, 0.20), signs_panels), ("signpost", (0.50, 0.51, 0.53), signposts),
                 ("fences", (0.62, 0.63, 0.66), fences)],
