@@ -514,16 +514,44 @@ def build(project_dir: str | Path) -> dict:
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
     grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m so grading hugs the road cleanly
-    y_at = _grid_sampler(grid, meta, elev0)
     m_lon, m_lat = _meters_per_degree(origin[1])
+
+    # GROUND HEIGHT for scenery: prefer the CONFORMED grass surface (data/ground.local.json, written by
+    # build_mesh AFTER conform_terrain_to_road + clamp_terrain_below_road) so poles/trees/signs/buildings
+    # stand on the surface that actually renders — not the raw bare-earth DEM, which near the track sits
+    # ~0.5-few m off after the road conform (the "objects not flush with the ground" defect). Falls back
+    # to the raw heightfield sampler if the mesh stage hasn't run yet, so build_env alone still works.
+    gl_path = data / "ground.local.json"
+    if gl_path.exists():
+        _gl = json.loads(gl_path.read_text())
+        gx0, gz0, gdx, gdz, gnx, gny, GY = (_gl["x0"], _gl["z0"], _gl["dx"], _gl["dz"],
+                                            _gl["nx"], _gl["ny"], _gl["y"])
+
+        def ground_y(x, z):
+            """Conformed-ground height under a LOCAL (mirrored) x,z, bilinear on the shipped grass grid."""
+            fi = (x - gx0) / gdx if gdx else 0.0
+            fj = (z - gz0) / gdz if gdz else 0.0
+            i0 = max(0, min(gnx - 1, int(fi))); j0 = max(0, min(gny - 1, int(fj)))
+            i1 = min(gnx - 1, i0 + 1); j1 = min(gny - 1, j0 + 1)
+            ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
+            a = GY[j0][i0] * (1 - ti) + GY[j0][i1] * ti
+            b = GY[j1][i0] * (1 - ti) + GY[j1][i1] * ti
+            return a * (1 - tj) + b * tj
+
+        def y_at(lon, lat):
+            return ground_y(sx * (lon - origin[0]) * m_lon, (lat - origin[1]) * m_lat)
+        print("  [build_env] scenery height = conformed ground surface (ground.local.json)")
+    else:
+        y_at = _grid_sampler(grid, meta, elev0)
+
+        def ground_y(x, z):
+            """Terrain height under a LOCAL (mirrored) x,z — inverts the projection (incl. mirror) before
+            sampling the heightfield, so scattered foliage sits on the real ground, not its mirror image."""
+            return y_at(origin[0] + sx * x / m_lon, origin[1] + z / m_lat)
+        print("  [build_env] WARNING: ground.local.json missing — scenery on RAW DEM (run mesh stage first)")
 
     def project(lon, lat):
         return (sx * (lon - origin[0]) * m_lon, y_at(lon, lat), (lat - origin[1]) * m_lat)
-
-    def ground_y(x, z):
-        """Terrain height under a LOCAL (mirrored) x,z — inverts the projection (incl. mirror) before
-        sampling the heightfield, so scattered foliage sits on the real ground, not a mirror-image of it."""
-        return y_at(origin[0] + sx * x / m_lon, origin[1] + z / m_lat)
 
     # environment.geojson (OSM buildings/water/landuse zones) is OPTIONAL: an aerial- or GPS-sourced
     # track (e.g. a private complex) has no OSM zones to fetch. Absent → no scenery zones, not a crash.
@@ -698,7 +726,10 @@ def build(project_dir: str | Path) -> dict:
             px, pz = x - nx * off, z - nz * off
             if on_surface(px, pz):                     # verge offset landed on a crossing/fold-back road — skip
                 continue
-            shaft, lamphead = _streetlight(px, y, pz, nx, nz)   # arm reaches +n back over the lane
+            # Seat on the CONFORMED ground at the pole's OWN verge location — not the road centerline y,
+            # which left the base floating ~0.25 m+ over the clamped grass beside the road (and more where
+            # the verge slopes off). trees/bushes already use ground_y; poles now match.
+            shaft, lamphead = _streetlight(px, ground_y(px, pz), pz, nx, nz)   # arm reaches +n back over the lane
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
             nlights += 1
@@ -727,7 +758,7 @@ def build(project_dir: str | Path) -> dict:
         if on_surface(bx, bz):                         # base would sit on a crossing/fold-back road — skip the
             continue                                   # pole (the wire then spans to the next kept pole, i.e. an
                                                        # overhead crossing — realistic, and wires are visual-only)
-        pole, tips = _utility_pole(bx, y, bz, tx, tz)
+        pole, tips = _utility_pole(bx, ground_y(bx, bz), bz, tx, tz)   # seat on conformed ground, not road-centreline y
         pole_meshes.append(pole)
         npole += 1
         if prev_tips is not None:
@@ -851,7 +882,8 @@ def build(project_dir: str | Path) -> dict:
             cells = signs.render_atlas([nm for _i, nm in placements], tex_dir / "signs_atlas.png")
             sg = signs.build_signs(loop, widths, placements, cells,
                                    flip_read=bool(sg_cfg.get("flip_read", False)),
-                                   flip_up=bool(sg_cfg.get("flip_up", False)), reject=on_surface)
+                                   flip_up=bool(sg_cfg.get("flip_up", False)), reject=on_surface,
+                                   ground=ground_y)
             signs_panels, signposts = sg["SIGNS"], sg["SIGNPOST"]
             nsign = len(sg["kept"])
             print(f"  street signs: {nsign}/{len(placements)} -> {sg['kept']}")

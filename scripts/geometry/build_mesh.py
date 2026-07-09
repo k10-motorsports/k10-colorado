@@ -100,6 +100,25 @@ def write_mtl(path: Path) -> None:
     )
 
 
+def write_ground_local(path: Path, grid_xyz: list[list[Vertex]]) -> None:
+    """Persist the CONFORMED+CLAMPED grass surface (the grid AFTER conform_terrain_to_road and
+    clamp_terrain_below_road, i.e. the exact surface the 1GRASS mesh triangulates) as a regular
+    bilinear-samplable heightfield in the local (mirrored) ENU frame.
+
+    This is the single source of truth for "what height is the ground here": build_env samples it so
+    scenery (poles, trees, signs, buildings) stands on the surface that actually renders — NOT the raw
+    bare-earth DEM, which near the track differs by the road conform/clamp (poles floated/sank ~0.5-few m
+    beside the road before this). audit_mesh's prop-float check (G) reads it too. X,Z are unchanged by
+    the conform (Y-only), so the grid stays axis-regular; dx/dz are signed (dx<0 on mirror_x tracks)."""
+    ny, nx = len(grid_xyz), len(grid_xyz[0])
+    x0, z0 = grid_xyz[0][0][0], grid_xyz[0][0][2]
+    dx = (grid_xyz[0][1][0] - x0) if nx > 1 else 1.0
+    dz = (grid_xyz[1][0][2] - z0) if ny > 1 else 1.0
+    y = [[grid_xyz[j][i][1] for i in range(nx)] for j in range(ny)]
+    path.write_text(json.dumps({"x0": x0, "z0": z0, "dx": dx, "dz": dz, "nx": nx, "ny": ny, "y": y}),
+                    encoding="utf-8")
+
+
 def orient_up(mesh: dict) -> dict:
     """Flip any triangle whose geometric normal faces down so every face points +Y (up).
 
@@ -314,6 +333,9 @@ def build(project_dir: str | Path) -> dict:
     # up through the ribbon. Must run after shoulder+runoff exist and before grass_terrain.
     ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + shoulder["vertices"] + runoff["vertices"],
                                     clear=GRASS_CLEARANCE_M)
+    # Persist the conformed ground surface for build_env (scenery height) + audit_mesh check G. Must be
+    # AFTER conform+clamp and reflect grid_xyz exactly — it is the surface the grass mesh triangulates.
+    write_ground_local(data / "ground.local.json", grid_xyz)
     grass = ribbon.grass_terrain(grid_xyz)
     # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
     # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.

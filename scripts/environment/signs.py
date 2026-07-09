@@ -86,7 +86,7 @@ def placements_from_segments(segments: list[dict], *, min_leg_m: float = 200.0) 
 def build_signs(loop: list[Vertex], widths_m: list[float], placements: list[tuple[int, str]],
                 cells: dict[str, tuple[float, float, float, float]], *,
                 panel_w: float = 2.6, panel_h: float = 0.62, panel_top: float = 2.9,
-                flip_read: bool = False, flip_up: bool = False, reject=None) -> dict[str, dict]:
+                flip_read: bool = False, flip_up: bool = False, reject=None, ground=None) -> dict[str, dict]:
     """Place a post + name panel at each ``(corner_index, street_name)`` placement, the panel turned
     flat to face the approaching driver and UV-mapped to its atlas cell.
 
@@ -120,14 +120,16 @@ def build_signs(loop: list[Vertex], widths_m: list[float], placements: list[tupl
         if reject is not None and reject(bx, bz):     # base on a crossing/fold-back road at the junction — skip
             continue
         kept.append(nm)
-        cy = y + panel_top                            # panel centre height
+        by = ground(bx, bz) if ground is not None else y  # seat the post on the CONFORMED ground at the
+        #                                                   verge, not the road centreline y (else it floats)
+        cy = by + panel_top                           # panel centre height
         top = cy + panel_h / 2.0
 
         # post: crossed thin quads (double-sided) so it reads from any approach angle
         r = len(sv)
         pr = 0.07
-        sv += [(bx - pr, y, bz), (bx + pr, y, bz), (bx + pr, top, bz), (bx - pr, top, bz),
-               (bx, y, bz - pr), (bx, y, bz + pr), (bx, top, bz + pr), (bx, top, bz - pr)]
+        sv += [(bx - pr, by, bz), (bx + pr, by, bz), (bx + pr, top, bz), (bx - pr, top, bz),
+               (bx, by, bz - pr), (bx, by, bz + pr), (bx, top, bz + pr), (bx, top, bz - pr)]
         st += [(r, r + 1, r + 2), (r, r + 2, r + 3), (r, r + 2, r + 1), (r, r + 3, r + 2),
                (r + 4, r + 5, r + 6), (r + 4, r + 6, r + 7), (r + 4, r + 6, r + 5), (r + 4, r + 7, r + 6)]
 
