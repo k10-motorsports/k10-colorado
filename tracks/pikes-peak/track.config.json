@@ -1,7 +1,7 @@
 {
-  "name": "PPIR Oval",
-  "slug": "ppir_oval",
-  "version": "0.1.0",
+  "name": "Pikes Peak International Raceway",
+  "slug": "pikes_peak_international_raceway",
+  "version": "0.2.0",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 15.0,
