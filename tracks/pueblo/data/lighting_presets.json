@@ -1,0 +1,31 @@
+{
+  "location": {
+    "lat": 38.303726,
+    "lon": -104.675683,
+    "timezone": "America/Denver"
+  },
+  "true_north_rotation_deg": 180.0,
+  "sunset_check": {
+    "azimuth_deg": 301.3,
+    "elevation_deg": -1.5,
+    "east_sign": "west",
+    "enu_x": -0.854
+  },
+  "presets": {
+    "morning": {
+      "local_time": "08:00:00",
+      "sun_azimuth_deg": 79.4,
+      "sun_elevation_deg": 25.0
+    },
+    "noon": {
+      "local_time": "13:00:00",
+      "sun_azimuth_deg": 177.7,
+      "sun_elevation_deg": 74.7
+    },
+    "golden_hour": {
+      "local_time": "19:45:00",
+      "sun_azimuth_deg": 294.5,
+      "sun_elevation_deg": 6.3
+    }
+  }
+}

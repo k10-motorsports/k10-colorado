@@ -94,11 +94,11 @@ with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, 6) as z:
             z.write(f, f.relative_to(root))
 print(f"  -> {zp}  ({zp.stat().st_size/1e6:.1f} MB)")
 PY
-  # publish the installable folder to a committed, git-pullable location (tracks/<slug>/). The .svg
-  # render previews are OURS, not AC assets (CM uses preview.png) — exclude them to keep it lean.
-  mkdir -p "$ROOT/tracks/$SLUG"
-  rsync -a --delete --exclude='*.svg' "$PROJ/build/$SLUG/" "$ROOT/tracks/$SLUG/"
-  find "$ROOT/tracks/$SLUG" -name '*.svg' -delete 2>/dev/null || true
-  echo "  synced -> tracks/$SLUG/  (git pull lands this in content/tracks via a junction/symlink)"
+  # NOTE: the old prodrive layout published the content folder to tracks/<slug>/ via
+  # `rsync -a --delete`. In K10, tracks/<slug>/ IS the source project dir, and when the AC slug equals
+  # the track dir name (e.g. "pueblo"), that --delete rsync WIPES the track's own config/source/data.
+  # The installable deliverable is build/<slug>_v<ver>.zip (+ build/<slug>/), so that publish step is
+  # removed. Do NOT re-add an rsync that writes into tracks/<slug>/.
+  echo "  installable: $PROJ/build/${SLUG}_v${VER}.zip  (+ folder $PROJ/build/$SLUG/)"
 fi
 echo; echo "✓ build complete: $PROJ ($SLUG v$VER)"

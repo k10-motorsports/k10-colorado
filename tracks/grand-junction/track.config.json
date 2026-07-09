@@ -1,0 +1,67 @@
+{
+  "name": "Grand Junction Motor Speedway",
+  "slug": "grand_junction",
+  "version": "0.1.0",
+  "mirror_x": true,
+  "loop": true,
+  "default_width_m": 9.75,
+  "location": {
+    "lat": 39.108545,
+    "lon": -108.492903,
+    "timezone": "America/Denver",
+    "city": "Grand Junction",
+    "country": "United States"
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 180.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "kerb": {
+    "height_m": 0.08,
+    "width_m": 1.2,
+    "top_frac": 0.6,
+    "edge_ramp": 0.4
+  },
+  "scenery": {
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 45,
+    "tree_cap": 150,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 9,
+    "bush_density": 0.25,
+    "bush_off_min_m": 6,
+    "bush_off_span_m": 22,
+    "bush_size_min_m": 1.0,
+    "bush_size_span_m": 1.2,
+    "light_spacing_m": 90
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ],
+    "grassfx": true
+  },
+  "source": {
+    "type": "from_track",
+    "track": "source/osm_fixes.json",
+    "_note": "Real OSM highway=raceway way 293789503 at 3002 N I-70 Frontage Rd, Grand Junction CO (Mesa County). Closed 54-node ring, native CCW winding reversed to CW. ROAD COURSE (~0.9 mi advertised, 11 turns, ~9.75 m/32 ft wide asphalt sprint/kart circuit). Flat mesa-top site north of I-70; elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking. A '1.25-mi oval/banked' web claim was a conflation with other venues and is rejected."
+  },
+  "road_profile": {
+    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "dips": [],
+    "cambers": []
+  }
+}

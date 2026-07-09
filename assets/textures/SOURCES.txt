@@ -1,0 +1,35 @@
+Texture sources — all CC0 (public domain); credited as good practice. (machine-readable: ../licenses.json)
+
+  asphalt_diffuse.jpg / asphalt_normal.jpg   Poly Haven "aerial_asphalt_01" (2K)  https://polyhaven.com/a/aerial_asphalt_01
+                                             ~30 m aerial asphalt — large real-world scale kills the
+                                             close-up tiling. Road UV tile is 15 m (build_mesh.py).
+  grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001" (2K)            https://ambientcg.com/view?id=Grass001
+  kerb_diffuse.png                           generated (red/white stripe, scripts pipeline)
+  chainlink_diffuse.png                      generated (procedural alpha-cutout chain-link, scripts/environment/make_chainlink.py)
+  warehouse_metal_diffuse.jpg / warehouse_metal_normal.jpg  ambientCG "CorrugatedSteel002"  https://ambientcg.com/view?id=CorrugatedSteel002
+                                             corrugated-metal warehouse skin (the real C.C. mix is metal + concrete)
+  tree_diffuse.png                            REPLACE-ME (billboard placeholder; swap for a CC0 atlas)
+
+Normal maps are OpenGL convention (Poly Haven "nor_gl" / ambientCG "NormalGL").
+2K JPG resolution. Tiling is controlled by the UV scale in the geometry pass (road 15 m, grass 6 m, kerb 1 m).
+
+guardrail_diffuse.png + guardrail_normal.png — armco guardrail, extracted from LA Canyons 1.2 (main_rails.kn5, guardrail_07.dds). Personal/non-distributed use only.
+ground_dry_diffuse.jpg — dry dirt/gravel ground, from LA Canyons (la_canyons.kn5, lac_dirt_ground_07.dds).
+bushes_atlas.png — dry scrub bushes (sage/rabbitbrush/grass-tuft/agave), from LA Canyons (main_bushes.kn5, bo_bushes_11.dds). Personal/non-distributed use.
+asphalt_cracked_diffuse.jpg + asphalt_cracked_normal.jpg — cracked/alligator tarmac, from LA Canyons (main_roads.kn5, lac_tarmac_detail_cracked_04.dds). Personal/non-distributed use.
+
+trees_atlas.png — curated 3x2 cutout atlas from Colorado (AC mod) 2013colorado_tree.kn5: 4 mature
+  broadleaf (material trees4) + spruce + Lombardy poplar (material trees_NEW), composed for the Sand
+  Creek cottonwood/Front-Range look. Mined via scripts/modkit/extract_kn5.py, PERSONAL/non-distributed.
+
+container_diffuse.jpg + container_normal.jpg — weathered shipping-container stack, from Hamburg by 4r
+  (container.kn5, material 'container'). Skinned onto generated container-yard boxes. Mined via
+  scripts/modkit/extract_kn5.py, PERSONAL/non-distributed use (repo private).
+
+Building set — mined from Hamburg by 4r (nhh_detail.kn5) via scripts/modkit/extract_kn5.py. The mod
+  embeds TextureCom/KitBash3D PBR maps (each albedo + normal); used PERSONAL/non-distributed (repo private):
+  building_diffuse.jpg / building_normal.jpg   material 'concretebunker'  (TCom_Wall_ConcreteBunker2 — tilt-up concrete)
+  warehouse_diffuse.jpg / warehouse_normal.jpg material 'concreterough'   (TCom_Wall_ConcreteBunkerWeathered — aged concrete)
+  roof_diffuse.jpg / roof_normal.jpg           material 'bluemetal'       (TCom_Roofing_PVC — flat membrane roof)
+  brick_diffuse.jpg / brick_normal.jpg         material 'brickwall'       (TCom_Wall_BrickPlain1 — building variety)
+  stucco_diffuse.jpg / stucco_normal.jpg       material 'redstucco'       (TCom_Wall_Stucco28 — building variety)
