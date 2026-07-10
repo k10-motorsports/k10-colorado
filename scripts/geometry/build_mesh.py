@@ -364,9 +364,19 @@ def build(project_dir: str | Path) -> dict:
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
-    # ANTI-POKE: clamp the terrain grid below the drivable ribbon (road + corner runoff) FIRST, so the
-    # graded grass surface is final before anything drapes onto it. One-sided (natural dips survive).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"], clear=GRASS_CLEARANCE_M)
+    # Interior connector roads (2nd-layout streets / the PPIR infield roval) — flat drivable 1ROAD. Built
+    # HERE (before the clamp) so the terrain is graded below them too — else the grass pokes up through the
+    # connector (the roval poked +0.5 m before this moved up from after grass_terrain).
+    conn_meshes = []
+    for name, pts, w in connectors:
+        cm = ribbon.road_ribbon(pts, w, tile_m=8.0)
+        cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
+        conn_meshes.append((f"1ROAD_{name}", cm))
+    conn_verts = [v for _n, cm in conn_meshes for v in cm["vertices"]]
+    # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors) so the
+    # graded grass surface is FINAL before the edge strips drape onto it. One-sided (natural dips survive).
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts,
+                                    clear=GRASS_CLEARANCE_M)
     # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
     # edge strips DRAPE onto so their outer lip sits flush on the ground at road resolution (no float,
     # independent of the coarse grass grid). Same sampler build_env + audit use via ground.local.json.
@@ -389,10 +399,6 @@ def build(project_dir: str | Path) -> dict:
         shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk,
                                         ground_drop=GRASS_CLEARANCE_M, ground=grass_surf)
         edge_group, edge_mat = "1ROAD_shoulder", "road"
-    # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G + the drape
-    # above. Reflects grid_xyz exactly — it is the surface the grass mesh triangulates.
-    write_ground_local(data / "ground.local.json", grid_xyz)
-    grass = ribbon.grass_terrain(grid_xyz)
     # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
     # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
     kerb_cfg = cfg_raw.get("kerb", {})
@@ -405,6 +411,15 @@ def build(project_dir: str | Path) -> dict:
         print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
               f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
+    # ANTI-POKE pass 2: the draped shoulder/kerb outer edges land on the bilinear grass_surf, but the grass
+    # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small
+    # +0.1–0.5 m pokes on banked ovals). Clamp the grid just below the draped strips (tiny 5 cm clearance,
+    # short reach) so no grass triangle pokes up through them, without re-opening a visible gap.
+    ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0)
+    # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G. Reflects
+    # grid_xyz exactly (post both anti-poke passes) — the surface the grass mesh triangulates.
+    write_ground_local(data / "ground.local.json", grid_xyz)
+    grass = ribbon.grass_terrain(grid_xyz)
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
 
@@ -416,14 +431,6 @@ def build(project_dir: str | Path) -> dict:
     if barrier_spots:
         print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "
               f"(crest-blind: {sum(1 for s in barrier_spots if s['crest'])})")  # just above road
-
-    # Ribbon the interior connector roads — flat drivable 1ROAD asphalt (no bank/dip), so the interior
-    # layout is drivable on the same kn5. Named 1ROAD_* -> asphalt material + physical (export DRIVABLE).
-    conn_meshes = []
-    for name, pts, w in connectors:
-        cm = ribbon.road_ribbon(pts, w, tile_m=8.0)
-        cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
-        conn_meshes.append((f"1ROAD_{name}", cm))
 
     # CROSSWALK across the start/finish (continental bars) — sits just above the lane lines.
     xwalk = ribbon.crosswalk(centerline, widths, at_idx=0, bank_at=bnk)

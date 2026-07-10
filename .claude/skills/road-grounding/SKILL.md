@@ -84,7 +84,26 @@ sidewalk float `0.8 m → flush`; creek `grass +9.7 m mesa → slope to real gro
   so bridge piers look short. Fix (unimplemented): locally refine the grid near the water line, or carve
   the creek channel as explicit geometry before grading. Not blocking — the deck-on-piers is correct.
 
+## Gotcha: draped-edge seam pokes (banked ovals, roval connectors)
+
+Applying grounding to the rest surfaced small terrain pokes (grass through road, +0.1–0.55 m) — worst on
+the **PPIR banked oval + roval connector**. Two causes, both fixed in `build_mesh`:
+
+1. **The drape lands on the bilinear `grass_surf`, but the grass MESH is triangulated grid nodes** — a
+   node near the seam can sit a touch ABOVE the draped shoulder/kerb edge. Fix: an **anti-poke pass 2** —
+   `clamp_terrain_below_road(grid, shoulder + kerb verts, clear=0.05, reach=6.0)` AFTER the drape, BEFORE
+   `grass_terrain`. Tiny 5 cm clearance so it kills the poke without re-opening a visible gap.
+2. **Connectors were built AFTER `grass_terrain`**, so the grid was never graded/clamped below them and the
+   grass poked up through the roval. Fix: build `conn_meshes` BEFORE the clamp and include their verts in
+   anti-poke **pass 1** (`road + runoff + connectors`).
+
+Order that works: grade → road + runoff + connectors → clamp pass 1 → grass_surf → drape shoulder + kerb →
+clamp pass 2 (below draped edges, 5 cm) → write ground.local → grass_terrain. After this, all 8 circuits
+(flat road courses, banked ovals, the roval) audit **B (poke) = 0**.
+
 ## Per-track notes (append as you apply grounding to each circuit)
-- **Sand Creek** (road, `sidewalk` edge, mirror_x): the reference case. 4 elevation-detected bridge spans
+- **Sand Creek** (road, `sidewalk` edge, mirror_x): reference case. 4 elevation-detected bridge spans
   (creek at 45th/Quebec). Draped sidewalk + embankments + creek bridge. audit CLEAN, kn5 verified. v0.6.1.
-- _<add banked-oval, roval-connector, flat-mesa, etc. gotchas here as they surface>_
+- **PPIR** (banked 10° oval + infield roval connector): triggered both seam-poke fixes above. Clean after.
+- **Pueblo / Grand Junction / Aspen / High Plains / Second Creek / IMI**: flat-to-rolling road courses;
+  small fills → smooth gradations, no bridges. All audit CLEAN with the two-pass clamp.

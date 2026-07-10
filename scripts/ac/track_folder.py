@@ -73,8 +73,12 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
     # in the in-game dropdown reads as its actual track, not the raw id.
     lo_meta = next((lo for lo in (cfg.raw.get("layouts", []) or []) if lo.get("id") == layout), {})
     lo_label = lo_meta.get("name") or layout
+    # Content Manager display name: prefix the series so all K10 Colorado circuits group together in the
+    # in-game list ("K10 Colorado - Sand Creek Raceway", ...). Override per track via `ui_series`.
+    series = cfg.raw.get("ui_series", "K10 Colorado")
+    base_name = f"{series} - {cfg.name}" if series else cfg.name
     return {
-        "name": f"{cfg.name}" + ("" if layout in ("full", "freeroam") else f" — {lo_label}"),
+        "name": base_name + ("" if layout in ("full", "freeroam") else f" — {lo_label}"),
         "description": desc,
         "tags": tags,
         "geotags": [f"{cfg.lat}", f"{cfg.lon}"],
