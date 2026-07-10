@@ -77,7 +77,7 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
                  min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.05, ridge_period: float = 0.6,
                  ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
                  fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6, edge_ramp: float = 0.0,
-                 bank_at=None) -> dict:
+                 bank_at=None, ground=None) -> dict:
     """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
     Each corner run is resampled fine (``fine_step``) and a cross-section is swept along it:
         road-edge lip (vertical, flush at the lane edge) -> raised top -> ramp back down on the verge,
@@ -111,10 +111,16 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
             lip = half + kerb_w * edge_ramp        # lane-side ramp: 0 = vertical street lip; >0 = rideable racing ramp
             tb = math.tan(bank_at(base_s + arc)) if bank_at else 0.0  # roll with the cambered road
             r = len(verts)
+            # ramp bottom (verge side): DRAPE onto the real ground so the kerb's outer lip sits flush on the
+            # terrain instead of floating at the banked-road-plane height (the "kerbs float at weird angles
+            # casting shadows" defect on banked/embanked corners). Falls back to the road plane if no ground.
+            rx, rz = x + nx * ramp, z + nz * ramp
+            ramp_y = ground(rx, rz) if ground is not None else y + lift + side * ramp * tb
+            ramp_y = min(ramp_y, y + lift + side * top * tb)   # never above the kerb top (stay a down-ramp)
             verts.append((x + nx * edge, y + lift + side * edge * tb, z + nz * edge))        # 0 edge bottom (road edge)
             verts.append((x + nx * lip, y + lift + h + side * lip * tb, z + nz * lip))       # 1 edge top (lane-side face: vertical lip or rideable ramp)
             verts.append((x + nx * top, y + lift + h + side * top * tb, z + nz * top))       # 2 top (outward)
-            verts.append((x + nx * ramp, y + lift + side * ramp * tb, z + nz * ramp))        # 3 ramp bottom (verge side)
+            verts.append((rx, ramp_y, rz))                                                   # 3 ramp bottom (draped on ground)
             v = arc / tile_m
             uvs.extend([(0.0, v), (0.15, v), (0.5, v), (1.0, v)])
             rows.append(r)
