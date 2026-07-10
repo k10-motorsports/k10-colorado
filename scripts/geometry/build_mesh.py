@@ -170,6 +170,33 @@ def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]
     return bridge_of
 
 
+def intersection_pads(pads: list[dict], *, mirror_x: bool, lift: float, tile_m: float = 8.0) -> dict:
+    """Paved intersection pads at the real junctions the circuit drives through (from
+    widths_from_osm → intersections.local.json). Each is a road-aligned square covering the crossing
+    footprint, sat 2 cm below the road ribbon so the ribbon wins where they overlap and the pad fills the
+    corners/cross-street arms. Drivable 1ROAD in build. UVs world-planar so asphalt tiles across it."""
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    sx = -1.0 if mirror_x else 1.0
+    for p in pads:
+        cx, cy, cz = sx * p["x"], p["y"] + lift - 0.02, p["z"]
+        tx, tz = sx * p.get("tx", 1.0), p.get("tz", 0.0)
+        tl = math.hypot(tx, tz) or 1.0
+        tx, tz = tx / tl, tz / tl
+        nx, nz = -tz, tx                       # road-normal
+        h = p["size"] / 2.0
+        b = len(verts)
+        for ux, uz in ((-h, -h), (h, -h), (h, h), (-h, h)):   # corners along (tangent, normal)
+            px = cx + ux * tx + uz * nx
+            pz = cz + ux * tz + uz * nz
+            verts.append((px, cy, pz))
+            uvs.append((px / tile_m, pz / tile_m))
+        tris.append((b, b + 1, b + 2))
+        tris.append((b, b + 2, b + 3))
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def orient_up(mesh: dict) -> dict:
     """Flip any triangle whose geometric normal faces down so every face points +Y (up).
 
@@ -327,6 +354,14 @@ def build(project_dir: str | Path) -> dict:
             pts = [(-p[0], p[1], p[2]) if mirror_x else tuple(p) for p in c["points_xyz_m"]]
             connectors.append((c["name"], pts, c["widths_m"]))
         print(f"  interior connectors: {len(connectors)} ({[n for n, _p, _w in connectors]})")
+    # Paved intersection pads at the real junctions the circuit drives through (widths_from_osm). Stored
+    # un-mirrored (like connectors); intersection_pads() mirrors. Absent → no pads (byte-identical).
+    isect_pads = []
+    ip_path = data / "intersections.local.json"
+    if ip_path.exists():
+        isect_pads = json.loads(ip_path.read_text(encoding="utf-8")).get("intersections", [])
+        if isect_pads:
+            print(f"  intersection pads: {len(isect_pads)}")
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
@@ -373,10 +408,13 @@ def build(project_dir: str | Path) -> dict:
         cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
         conn_meshes.append((f"1ROAD_{name}", cm))
     conn_verts = [v for _n, cm in conn_meshes for v in cm["vertices"]]
-    # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors) so the
-    # graded grass surface is FINAL before the edge strips drape onto it. One-sided (natural dips survive).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts,
-                                    clear=GRASS_CLEARANCE_M)
+    # Paved intersection pads (road-aligned squares at the real junctions), built here so the terrain is
+    # graded/clamped below them too — no grass poking up through an intersection.
+    pads_mesh = intersection_pads(isect_pads, mirror_x=mirror_x, lift=ROAD_LIFT_M)
+    # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors + pads)
+    # so the graded grass surface is FINAL before the edge strips drape onto it. One-sided (dips survive).
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts
+                                    + pads_mesh["vertices"], clear=GRASS_CLEARANCE_M)
     # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
     # edge strips DRAPE onto so their outer lip sits flush on the ground at road resolution (no float,
     # independent of the coarse grass grid). Same sampler build_env + audit use via ground.local.json.
@@ -468,6 +506,8 @@ def build(project_dir: str | Path) -> dict:
             orient_up(surface)
     for _gn, cm in conn_meshes:
         orient_up(cm)
+    if pads_mesh["tris"]:
+        orient_up(pads_mesh)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
@@ -484,6 +524,8 @@ def build(project_dir: str | Path) -> dict:
         groups.append(("BARRIER_warning", "kerb", barrier))   # guardrails at sharp/blind corners
     for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh
         groups.append((gname, "road", cm))
+    if pads_mesh["tris"]:
+        groups.append(("1ROAD_intersections", "road", pads_mesh))   # paved junction pads (drivable)
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
@@ -504,6 +546,8 @@ def build(project_dir: str | Path) -> dict:
         render_layers.append(("barrier", (0.92, 0.78, 0.20), barrier))   # warning guardrails in yellow
     for gname, cm in conn_meshes:
         render_layers.append((gname, (0.80, 0.55, 0.30), cm))   # interior-grid roads in amber
+    if pads_mesh["tris"]:
+        render_layers.append(("intersections", (0.60, 0.62, 0.66), pads_mesh))   # junction pads in grey
     render_iso(render_layers, dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),

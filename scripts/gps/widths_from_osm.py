@@ -1,0 +1,244 @@
+"""Assign REAL per-vertex road widths from OSM lanes — Sand Creek et al. felt like half the real road
+space because every vertex was a flat ``default_width_m``. This map-matches the EXISTING centerline
+(keeps the route) to OSM drivable ways per vertex, computes curb-to-curb pavement width from each way's
+``lanes``/class, smooths the transitions, and rewrites ``data/centerline.local.json`` widths_m in place.
+
+OSM has no ``width`` tags on these streets but tags ``lanes`` on the arterials; residential side streets
+are untagged (→ class default). Width = ``max(lanes, class-min) × lane_w + class curb-to-curb allowance``
+(parking/turn/shoulder), so a primary arterial (Colorado Blvd, Quebec) comes out ~2× a side street, matching
+reality. Also detects OSM junction nodes near the centerline and writes ``data/intersections.local.json`` for
+build_mesh to lay paved intersection pads.
+
+    python -m scripts.gps.widths_from_osm tracks/sand-creek
+"""
+from __future__ import annotations
+
+import json
+import math
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+Vertex = tuple[float, float]
+LANE_W = 3.5
+# class → (minimum lane count, curb-to-curb allowance beyond the lanes: parking/turn/shoulder/gutter, m)
+CLASS = {
+    "motorway": (4, 4.0), "trunk": (4, 4.0), "primary": (4, 6.0), "secondary": (3, 5.0),
+    "tertiary": (2, 4.0), "unclassified": (2, 3.0), "residential": (2, 4.0), "service": (1, 1.5),
+}
+MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+           "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+DRIVABLE = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|service"
+
+
+def _overpass(query: str, *, timeout: int = 120) -> dict:
+    last = None
+    for m in MIRRORS:
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(m, data=query.encode(), headers={"User-Agent": "k10-colorado/1.0"})
+                return json.load(urllib.request.urlopen(req, timeout=timeout))
+            except Exception as e:  # noqa: BLE001
+                last = e
+                time.sleep(2)
+    raise SystemExit(f"overpass unreachable (all mirrors): {last}")
+
+
+def fetch_ways(bbox: tuple[float, float, float, float]) -> list[dict]:
+    """Every drivable OSM way in bbox WITH the tags we need: id, name, highway, lanes, width, node ids, geom."""
+    s, w, n, e = bbox
+    q = (f'[out:json][timeout:120];(way["highway"~"^({DRIVABLE})(_link)?$"]({s},{w},{n},{e}););out geom;')
+    d = _overpass(q)
+    ways = []
+    for el in d.get("elements", []):
+        if el.get("type") != "way" or "geometry" not in el:
+            continue
+        t = el.get("tags", {})
+        ways.append({"id": el["id"], "name": t.get("name"), "highway": t.get("highway"),
+                     "lanes": t.get("lanes"), "width": t.get("width"), "nodes": el.get("nodes", []),
+                     "geom": [(g["lon"], g["lat"]) for g in el["geometry"]]})
+    return ways
+
+
+def pavement_width(way: dict | None) -> float:
+    """Curb-to-curb metres for an OSM way (or a sane default if unmatched)."""
+    if way is None:
+        return 9.0
+    if way.get("width"):
+        try:
+            return float(str(way["width"]).split()[0])
+        except ValueError:
+            pass
+    hw = way.get("highway", "residential")
+    cmin, extra = CLASS.get(hw, (2, 3.0))
+    lanes = cmin
+    try:
+        lanes = max(int(way["lanes"]), cmin)   # OSM often UNDER-tags US arterials → floor at the class typical
+    except (TypeError, ValueError):
+        pass
+    return round(lanes * LANE_W + extra, 1)
+
+
+def _match_per_vertex(cl: list[Vertex], ways: list[dict], *, max_snap_m: float = 26.0, min_run: int = 5):
+    """Nearest OSM way index per centerline vertex (−1 = off-network), de-jittered into runs ≥ min_run."""
+    lat0 = sum(p[1] for p in cl) / len(cl)
+    kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0; lon0 = cl[0][0]
+
+    def loc(lon, lat):
+        return ((lon - lon0) * kx, (lat - lat0) * ky)
+
+    segs = []  # (ax, ay, bx, by, way_idx)
+    for wi, wv in enumerate(ways):
+        xy = [loc(lo, la) for lo, la in wv["geom"]]
+        for i in range(len(xy) - 1):
+            segs.append((xy[i][0], xy[i][1], xy[i + 1][0], xy[i + 1][1], wi))
+    idx = []
+    for lon, lat in cl:
+        px, py = loc(lon, lat)
+        best_d2, best_wi = max_snap_m * max_snap_m, -1
+        for ax, ay, bx, by, wi in segs:
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy or 1e-9
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+            cx, cy = ax + t * dx, ay + t * dy
+            d2 = (px - cx) ** 2 + (py - cy) ** 2
+            if d2 < best_d2:
+                best_d2, best_wi = d2, wi
+        idx.append(best_wi)
+    # de-jitter: replace runs shorter than min_run with the previous kept way
+    out = idx[:]
+    i = 0
+    n = len(out)
+    while i < n:
+        j = i
+        while j < n and out[j] == out[i]:
+            j += 1
+        if j - i < min_run and i > 0:
+            for k in range(i, j):
+                out[k] = out[i - 1]
+        i = j
+    return out
+
+
+def _smooth(vals: list[float], win: int = 9) -> list[float]:
+    n = len(vals); h = win // 2
+    return [sum(vals[max(0, i - h):min(n, i + h + 1)]) / (min(n, i + h + 1) - max(0, i - h)) for i in range(n)]
+
+
+MAJOR = {"motorway", "trunk", "primary", "secondary", "tertiary"}   # "real" intersections cross these
+
+
+def detect_junctions(ways: list[dict], cl: list[Vertex], local_pts: list, *, near_m: float = 16.0,
+                     dedupe_m: float = 38.0) -> list[dict]:
+    """Real intersections the circuit drives THROUGH: OSM nodes where ≥2 ARTERIAL (tertiary+) ways meet,
+    within ``near_m`` of the racing line — i.e. the corners where the circuit turns street-to-street and
+    the major crossings, NOT every minor residential T-junction (the through-road width already covers
+    those). Each becomes a paved pad, oriented to the racing line, sized to the widest crossing street.
+    Returns ``[{x,y,z,size,tx,tz}]`` in the LOCAL (un-mirrored) frame, placed at the nearest centerline
+    vertex (the junction is on the racing line) so no re-projection is needed. Clustered nodes of one big
+    intersection dedupe to a single pad."""
+    from collections import defaultdict
+    node_ll: dict[int, Vertex] = {}
+    node_ways: dict[int, list[int]] = defaultdict(list)
+    for wi, wv in enumerate(ways):
+        for nid, (lo, la) in zip(wv.get("nodes", []), wv["geom"]):
+            node_ll[nid] = (lo, la)
+            node_ways[nid].append(wi)
+    lat0 = sum(p[1] for p in cl) / len(cl)
+    kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0
+    clx = [c[0] * kx for c in cl]; clz = [c[1] * ky for c in cl]
+    pads: list[dict] = []
+    for nid, wl in node_ways.items():
+        major = {wi for wi in wl if ways[wi].get("highway") in MAJOR}
+        if len(major) < 2:                         # need ≥2 arterial ways = a real intersection/corner
+            continue
+        lo, la = node_ll[nid]
+        nx, nz = lo * kx, la * ky
+        best_k, best_d2 = -1, near_m * near_m
+        for k in range(len(cl)):
+            d2 = (nx - clx[k]) ** 2 + (nz - clz[k]) ** 2
+            if d2 < best_d2:
+                best_d2, best_k = d2, k
+        if best_k < 0:
+            continue
+        size = max(pavement_width(ways[wi]) for wi in major) + 3.0
+        x, y, z = local_pts[min(best_k, len(local_pts) - 1)]
+        a = local_pts[max(0, best_k - 1)]; b = local_pts[min(len(local_pts) - 1, best_k + 1)]
+        tx, tz = b[0] - a[0], b[2] - a[2]
+        tl = math.hypot(tx, tz) or 1.0
+        pads.append({"x": round(x, 2), "y": round(y, 2), "z": round(z, 2), "size": round(size, 1),
+                     "tx": round(tx / tl, 4), "tz": round(tz / tl, 4)})
+    pads.sort(key=lambda p: -p["size"])
+    kept: list[dict] = []
+    for p in pads:
+        if all((p["x"] - q["x"]) ** 2 + (p["z"] - q["z"]) ** 2 > dedupe_m * dedupe_m for q in kept):
+            kept.append(p)
+    return kept
+
+
+def build(project_dir: str | Path) -> dict:
+    project = Path(project_dir)
+    data = project / "data"
+    gj = json.loads((data / "centerline.geojson").read_text())
+    feats = gj.get("features", [gj])
+    line = next((f for f in feats if f.get("geometry", {}).get("type") == "LineString"), None)
+    cl = [(c[0], c[1]) for c in line["geometry"]["coordinates"]]
+    local = json.loads((data / "centerline.local.json").read_text())
+    n_local = len(local["widths_m"])
+    if len(cl) != n_local:
+        print(f"  [widths_from_osm] NOTE centerline.geojson has {len(cl)} pts, local has {n_local}; "
+              f"matching on the shorter and nearest-resampling widths")
+    lons = [c[0] for c in cl]; lats = [c[1] for c in cl]
+    pad = 0.0015
+    bbox = (min(lats) - pad, min(lons) - pad, max(lats) + pad, max(lons) + pad)
+    ways = fetch_ways(bbox)
+    idx = _match_per_vertex(cl, ways)
+    widths_cl = [pavement_width(ways[wi] if wi >= 0 else None) for wi in idx]
+    widths_cl = _smooth(widths_cl)
+    # resample widths to the LOCAL vertex count if they differ (nearest by fractional index)
+    if len(widths_cl) != n_local:
+        widths = [widths_cl[min(len(widths_cl) - 1, round(i * (len(widths_cl) - 1) / max(n_local - 1, 1)))]
+                  for i in range(n_local)]
+    else:
+        widths = widths_cl
+    widths = [round(w, 2) for w in widths]
+    local["widths_m"] = widths
+    local["default_width_m"] = round(sum(widths) / len(widths), 2)
+    (data / "centerline.local.json").write_text(json.dumps(local), encoding="utf-8")
+
+    # intersection pads at the real junctions the circuit drives through
+    local_pts = local.get("points_xyz_m", [])
+    junctions = detect_junctions(ways, cl, local_pts) if local_pts else []
+    (data / "intersections.local.json").write_text(json.dumps({"intersections": junctions}), encoding="utf-8")
+
+    # per-street summary
+    from collections import defaultdict
+    seg = defaultdict(int)
+    for wi in idx:
+        seg[wi] += 1
+    named = []
+    for wi, cnt in sorted(seg.items(), key=lambda x: -x[1]):
+        wv = ways[wi] if wi >= 0 else None
+        named.append((cnt, (wv or {}).get("name") or ("off-network" if wi < 0 else f"way{wi}"),
+                      (wv or {}).get("highway", "-"), (wv or {}).get("lanes", "-"), pavement_width(wv)))
+    import statistics
+    stats = {"vertices": n_local, "min_w": min(widths), "median_w": statistics.median(widths),
+             "max_w": max(widths), "matched_pct": round(100 * sum(1 for w in idx if w >= 0) / len(idx), 1),
+             "junctions": len(junctions), "streets": named[:16]}
+    return stats
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: python -m scripts.gps.widths_from_osm <project-dir>")
+    st = build(sys.argv[1])
+    print(f"widths_from_osm: {st['vertices']} verts  matched {st['matched_pct']}%  "
+          f"width min/median/max = {st['min_w']}/{st['median_w']}/{st['max_w']} m  "
+          f"intersection pads = {st['junctions']}")
+    for cnt, nm, hw, ln, w in st["streets"]:
+        print(f"  {cnt:5d}v  {nm:32s} {hw:12s} lanes={ln!s:>3}  -> {w} m")
+
+
+if __name__ == "__main__":
+    main()

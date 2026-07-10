@@ -67,6 +67,11 @@ active gps     && { run gps     "$PY" -m scripts.gps.centerline "$PROJ"
                     run gps     "$PY" -m scripts.gps.street_labels "$PROJ"; }
 active elev    &&   run elev    "$PY" -m scripts.elevation.heightfield "$PROJ"
 active project &&   run project "$PY" -m scripts.geometry.projection "$PROJ"
+# Real street circuits (osm_road_widths=true): replace the flat default width with per-vertex OSM
+# lane-derived curb-to-curb widths + intersection pads. Runs after project (which writes the widths it
+# overrides) and hits Overpass. Racetracks keep their configured widths.
+active project && [ "$($PY -c "import json;print(json.load(open('$PROJ/track.config.json')).get('osm_road_widths',False))")" = "True" ] \
+               &&  run widths  "$PY" -m scripts.gps.widths_from_osm "$PROJ"
 active mesh    &&   run mesh    "$PY" -m scripts.geometry.build_mesh "$PROJ"
 active env     &&   run env     "$PY" -m scripts.environment.build_env "$PROJ"
 
