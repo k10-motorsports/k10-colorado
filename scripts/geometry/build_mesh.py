@@ -100,6 +100,103 @@ def write_mtl(path: Path) -> None:
     )
 
 
+def write_ground_local(path: Path, grid_xyz: list[list[Vertex]]) -> None:
+    """Persist the CONFORMED+CLAMPED grass surface (the grid AFTER conform_terrain_to_road and
+    clamp_terrain_below_road, i.e. the exact surface the 1GRASS mesh triangulates) as a regular
+    bilinear-samplable heightfield in the local (mirrored) ENU frame.
+
+    This is the single source of truth for "what height is the ground here": build_env samples it so
+    scenery (poles, trees, signs, buildings) stands on the surface that actually renders — NOT the raw
+    bare-earth DEM, which near the track differs by the road conform/clamp (poles floated/sank ~0.5-few m
+    beside the road before this). audit_mesh's prop-float check (G) reads it too. X,Z are unchanged by
+    the conform (Y-only), so the grid stays axis-regular; dx/dz are signed (dx<0 on mirror_x tracks)."""
+    ny, nx = len(grid_xyz), len(grid_xyz[0])
+    x0, z0 = grid_xyz[0][0][0], grid_xyz[0][0][2]
+    dx = (grid_xyz[0][1][0] - x0) if nx > 1 else 1.0
+    dz = (grid_xyz[1][0][2] - z0) if ny > 1 else 1.0
+    y = [[grid_xyz[j][i][1] for i in range(nx)] for j in range(ny)]
+    path.write_text(json.dumps({"x0": x0, "z0": z0, "dx": dx, "dz": dz, "nx": nx, "ny": ny, "y": y}),
+                    encoding="utf-8")
+
+
+def _grid_bilinear(grid_xyz: list[list[Vertex]], x: float, z: float) -> float:
+    """Bilinear Y of a regular (x,z) grid of (x,y,z) verts. dx/dz may be signed (mirror_x)."""
+    ny, nx = len(grid_xyz), len(grid_xyz[0])
+    x0, z0 = grid_xyz[0][0][0], grid_xyz[0][0][2]
+    dx = (grid_xyz[0][1][0] - x0) if nx > 1 else 1.0
+    dz = (grid_xyz[1][0][2] - z0) if ny > 1 else 1.0
+    fi = (x - x0) / dx if dx else 0.0
+    fj = (z - z0) / dz if dz else 0.0
+    i0 = max(0, min(nx - 1, int(fi))); j0 = max(0, min(ny - 1, int(fj)))
+    i1 = min(nx - 1, i0 + 1); j1 = min(ny - 1, j0 + 1)
+    ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
+    a = grid_xyz[j0][i0][1] * (1 - ti) + grid_xyz[j0][i1][1] * ti
+    b = grid_xyz[j1][i0][1] * (1 - ti) + grid_xyz[j1][i1][1] * ti
+    return a * (1 - tj) + b * tj
+
+
+BRIDGE_MIN_H_M = 3.5       # road must ride this far above bare earth to earn a bridge (else it's an embankment)
+BRIDGE_MIN_SPAN_M = 12.0   # ...over at least this long a run (a real span, not a one-vertex bump)
+
+
+def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]]):
+    """Return ``bridge_of(station_m) -> bool``: True where the road rides a sustained height above the
+    bare earth (a real gap to span — Sand Creek's creek). Those stations get NO embankment fill (the
+    valley stays open under the deck) and a bridge structure instead. Returns a no-op if there are none."""
+    st = [0.0]
+    for i in range(1, len(centerline_m)):
+        st.append(st[-1] + math.hypot(centerline_m[i][0] - centerline_m[i - 1][0],
+                                      centerline_m[i][2] - centerline_m[i - 1][2]))
+    high = [(cy - _grid_bilinear(natural_grid, cx, cz)) > BRIDGE_MIN_H_M for cx, cy, cz in centerline_m]
+    spans: list[tuple[float, float]] = []
+    i = 0
+    n = len(centerline_m)
+    while i < n:
+        if not high[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and high[j]:
+            j += 1
+        if st[j - 1] - st[i] >= BRIDGE_MIN_SPAN_M:
+            spans.append((st[i], st[j - 1]))
+        i = j
+    if not spans:
+        return None
+    print(f"  bridge spans: {len(spans)} ({[f'{a:.0f}-{b:.0f}m' for a, b in spans]}) — deck+piers, no fill")
+
+    def bridge_of(station_m: float) -> bool:
+        return any(a <= station_m <= b for a, b in spans)
+    return bridge_of
+
+
+def intersection_pads(pads: list[dict], *, mirror_x: bool, lift: float, tile_m: float = 8.0) -> dict:
+    """Paved intersection pads at the real junctions the circuit drives through (from
+    widths_from_osm → intersections.local.json). Each is a road-aligned square covering the crossing
+    footprint, sat 2 cm below the road ribbon so the ribbon wins where they overlap and the pad fills the
+    corners/cross-street arms. Drivable 1ROAD in build. UVs world-planar so asphalt tiles across it."""
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    sx = -1.0 if mirror_x else 1.0
+    for p in pads:
+        cx, cy, cz = sx * p["x"], p["y"] + lift - 0.02, p["z"]
+        tx, tz = sx * p.get("tx", 1.0), p.get("tz", 0.0)
+        tl = math.hypot(tx, tz) or 1.0
+        tx, tz = tx / tl, tz / tl
+        nx, nz = -tz, tx                       # road-normal
+        h = p["size"] / 2.0
+        b = len(verts)
+        for ux, uz in ((-h, -h), (h, -h), (h, h), (-h, h)):   # corners along (tangent, normal)
+            px = cx + ux * tx + uz * nx
+            pz = cz + ux * tz + uz * nz
+            verts.append((px, cy, pz))
+            uvs.append((px / tile_m, pz / tile_m))
+        tris.append((b, b + 1, b + 2))
+        tris.append((b, b + 2, b + 3))
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def orient_up(mesh: dict) -> dict:
     """Flip any triangle whose geometric normal faces down so every face points +Y (up).
 
@@ -257,6 +354,14 @@ def build(project_dir: str | Path) -> dict:
             pts = [(-p[0], p[1], p[2]) if mirror_x else tuple(p) for p in c["points_xyz_m"]]
             connectors.append((c["name"], pts, c["widths_m"]))
         print(f"  interior connectors: {len(connectors)} ({[n for n, _p, _w in connectors]})")
+    # Paved intersection pads at the real junctions the circuit drives through (widths_from_osm). Stored
+    # un-mirrored (like connectors); intersection_pads() mirrors. Absent → no pads (byte-identical).
+    isect_pads = []
+    ip_path = data / "intersections.local.json"
+    if ip_path.exists():
+        isect_pads = json.loads(ip_path.read_text(encoding="utf-8")).get("intersections", [])
+        if isect_pads:
+            print(f"  intersection pads: {len(isect_pads)}")
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
@@ -276,26 +381,53 @@ def build(project_dir: str | Path) -> dict:
     # not a road in a walled trench with the surrounding grass towering overhead.
     if profile_active:
         profile_mod.apply_dip_bowl(grid_xyz, centerline, dip_of)
-    # corridor 16 m (> the ~13 m grid's 9.4 m half-diagonal) so EVERY near-road node is graded below
-    # the road — kills the grass poke-throughs the old 12 m corridor missed, without over-refining the
-    # grid (×3 keeps 1GRASS ~48k verts, under AC's per-mesh 16-bit index limit).
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk,
-                                   extra_roads=[(p, w) for _n, p, w in connectors],
-                                   clearance=GRASS_CLEARANCE_M)
+    # EMBANKMENT/CUT GRADING: build the terrain UP from the real ground to the road (fill slope where the
+    # road is above bare earth, cut where below) instead of pulling the whole corridor UP to a flat mesa
+    # the car floats on. A gentle drivable band at the edge, then a 2:1 slope to the real ground — so the
+    # valley/hillside survives and running off is a slope, not a tabletop cliff. Racetracks (tiny fills)
+    # get automatic smooth gradations from the same path. bridge_of suppresses fill under a deck (below).
+    natural_grid = [[v for v in row] for row in grid_xyz]     # bare earth BEFORE grading (for bridge detect)
+    bridge_of = _bridge_detector(centerline, natural_grid)
+    ribbon.grade_embankment(grid_xyz, centerline, widths, bank_at=bnk,
+                            extra_roads=[(p, w) for _n, p, w in connectors],
+                            clearance=GRASS_CLEARANCE_M, bridge_of=bridge_of)
 
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
     road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
-    # ROAD EDGE — config-gated. Default: a paved asphalt SHOULDER that ramps the lane edge down to the
-    # terrain (kills the floating-ribbon hard edge). `road_edge.profile == "sidewalk"` instead sweeps a
-    # continuous curb→sidewalk→grass profile that shares seam vertices with the road and the grass (urban
-    # streets, e.g. Sand Creek). Both are physical so there is no gap to drop into; both bake the lift so
-    # the inner lip meets the road edge exactly. Other tracks (no road_edge) build byte-identically.
+    # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
+    runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
+    runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
+    # Interior connector roads (2nd-layout streets / the PPIR infield roval) — flat drivable 1ROAD. Built
+    # HERE (before the clamp) so the terrain is graded below them too — else the grass pokes up through the
+    # connector (the roval poked +0.5 m before this moved up from after grass_terrain).
+    conn_meshes = []
+    for name, pts, w in connectors:
+        cm = ribbon.road_ribbon(pts, w, tile_m=8.0)
+        cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
+        conn_meshes.append((f"1ROAD_{name}", cm))
+    conn_verts = [v for _n, cm in conn_meshes for v in cm["vertices"]]
+    # Paved intersection pads (road-aligned squares at the real junctions), built here so the terrain is
+    # graded/clamped below them too — no grass poking up through an intersection.
+    pads_mesh = intersection_pads(isect_pads, mirror_x=mirror_x, lift=ROAD_LIFT_M)
+    # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors + pads)
+    # so the graded grass surface is FINAL before the edge strips drape onto it. One-sided (dips survive).
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts
+                                    + pads_mesh["vertices"], clear=GRASS_CLEARANCE_M)
+    # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
+    # edge strips DRAPE onto so their outer lip sits flush on the ground at road resolution (no float,
+    # independent of the coarse grass grid). Same sampler build_env + audit use via ground.local.json.
+    def grass_surf(gx, gz):
+        return _grid_bilinear(grid_xyz, gx, gz)
+    # ROAD EDGE — config-gated. Default: a paved asphalt SHOULDER that ramps/embanks the lane edge down (or
+    # up) to the REAL ground. `road_edge.profile == "sidewalk"` instead sweeps a continuous
+    # curb→sidewalk→verge→embankment profile (urban streets, e.g. Sand Creek). Both DRAPE their outer edge
+    # onto grass_surf, so nothing hovers over the terrain even on a 10 m embankment.
     edge_cfg = cfg_raw.get("road_edge", {})
     if edge_cfg.get("profile") == "sidewalk":
         shoulder = ribbon.curb_sidewalk(centerline, widths, lift=ROAD_LIFT_M,
-                                        grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk,
+                                        grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk, ground=grass_surf,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
                                         curb_face_w=float(edge_cfg.get("curb_face_w", 0.08)),
                                         sidewalk_w=float(edge_cfg.get("sidewalk_w", 1.5)),
@@ -303,22 +435,12 @@ def build(project_dir: str | Path) -> dict:
         edge_group, edge_mat = "1KERB_sidewalk", "kerb"
     else:
         shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk,
-                                        ground_drop=GRASS_CLEARANCE_M)
+                                        ground_drop=GRASS_CLEARANCE_M, ground=grass_surf)
         edge_group, edge_mat = "1ROAD_shoulder", "road"
-    # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
-    runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
-    runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
-    # ANTI-POKE (mesh-audit check B): clamp the terrain grid below the FULL drivable edge (road + shoulder +
-    # corner runoff), THEN triangulate the grass. One-sided (only pushes pokes down; natural dips survive)
-    # and measured against the ACTUAL banked verts, so banked-turn inner edges and shoulder lips can't poke
-    # up through the ribbon. Must run after shoulder+runoff exist and before grass_terrain.
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + shoulder["vertices"] + runoff["vertices"],
-                                    clear=GRASS_CLEARANCE_M)
-    grass = ribbon.grass_terrain(grid_xyz)
     # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
     # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
     kerb_cfg = cfg_raw.get("kerb", {})
-    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk,
+    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk, ground=grass_surf,
                               kerb_h=float(kerb_cfg.get("height_m", 0.05)),
                               kerb_w=float(kerb_cfg.get("width_m", 1.0)),
                               top_frac=float(kerb_cfg.get("top_frac", 0.55)),
@@ -327,6 +449,15 @@ def build(project_dir: str | Path) -> dict:
         print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
               f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
+    # ANTI-POKE pass 2: the draped shoulder/kerb outer edges land on the bilinear grass_surf, but the grass
+    # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small
+    # +0.1–0.5 m pokes on banked ovals). Clamp the grid just below the draped strips (tiny 5 cm clearance,
+    # short reach) so no grass triangle pokes up through them, without re-opening a visible gap.
+    ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0)
+    # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G. Reflects
+    # grid_xyz exactly (post both anti-poke passes) — the surface the grass mesh triangulates.
+    write_ground_local(data / "ground.local.json", grid_xyz)
+    grass = ribbon.grass_terrain(grid_xyz)
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
 
@@ -338,14 +469,6 @@ def build(project_dir: str | Path) -> dict:
     if barrier_spots:
         print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "
               f"(crest-blind: {sum(1 for s in barrier_spots if s['crest'])})")  # just above road
-
-    # Ribbon the interior connector roads — flat drivable 1ROAD asphalt (no bank/dip), so the interior
-    # layout is drivable on the same kn5. Named 1ROAD_* -> asphalt material + physical (export DRIVABLE).
-    conn_meshes = []
-    for name, pts, w in connectors:
-        cm = ribbon.road_ribbon(pts, w, tile_m=8.0)
-        cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
-        conn_meshes.append((f"1ROAD_{name}", cm))
 
     # CROSSWALK across the start/finish (continental bars) — sits just above the lane lines.
     xwalk = ribbon.crosswalk(centerline, widths, at_idx=0, bank_at=bnk)
@@ -383,6 +506,8 @@ def build(project_dir: str | Path) -> dict:
             orient_up(surface)
     for _gn, cm in conn_meshes:
         orient_up(cm)
+    if pads_mesh["tris"]:
+        orient_up(pads_mesh)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
@@ -399,6 +524,8 @@ def build(project_dir: str | Path) -> dict:
         groups.append(("BARRIER_warning", "kerb", barrier))   # guardrails at sharp/blind corners
     for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh
         groups.append((gname, "road", cm))
+    if pads_mesh["tris"]:
+        groups.append(("1ROAD_intersections", "road", pads_mesh))   # paved junction pads (drivable)
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
@@ -419,6 +546,8 @@ def build(project_dir: str | Path) -> dict:
         render_layers.append(("barrier", (0.92, 0.78, 0.20), barrier))   # warning guardrails in yellow
     for gname, cm in conn_meshes:
         render_layers.append((gname, (0.80, 0.55, 0.30), cm))   # interior-grid roads in amber
+    if pads_mesh["tris"]:
+        render_layers.append(("intersections", (0.60, 0.62, 0.66), pads_mesh))   # junction pads in grey
     render_iso(render_layers, dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),

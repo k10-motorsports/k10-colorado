@@ -33,6 +33,9 @@ VERT_CAP = 65535
 FACE_UP_MIN = 0.90          # ≥90% of a drivable mesh's faces must point up (rest = holes_fill scraps)
 PIT_ROAD_MAX_M = 8.0        # a pit/start box must be within this of a 1ROAD vertex
 PIT_DY_MAX_M = 1.0          # ...and within this height of it
+POKE_ABOVE_M = 0.15         # a 1GRASS vert this far above a nearby drivable (road/kerb) vert = a poke
+POKE_R = 5.0                # horizontal reach (matches geometry/audit_mesh.py check B)
+POKE_MAX = 20               # tolerate a handful of holes_fill scraps; more = the seam regressed
 
 
 def _parse(path: Path) -> tuple[list, list]:
@@ -157,6 +160,32 @@ def verify(project_dir: str | Path) -> list[str]:
                 d = math.hypot(nr[0] - x, nr[2] - z)
                 if d > PIT_ROAD_MAX_M or abs(y - nr[1]) > PIT_DY_MAX_M:
                     fails.append(f"SPAWN off-road '{spk.name}:{nm}': {d:.1f} m from road, dY {y - nr[1]:+.1f} m")
+
+    # 6. terrain-poke ON THE SHIPPED BINARY — a 1GRASS vert sitting above a nearby drivable (road/kerb)
+    #    vert launches the car. audit_mesh checks this on track.obj (pre-export); this re-checks the kn5
+    #    AFTER the weld + holes_fill + export so a regression there can't ship silently (the whole point:
+    #    the audited mesh and the shipped mesh are different meshes). A regular clean build reads 0.
+    drive = [v for m in meshes if any(m["name"].upper().startswith(p) for p in ("1ROAD", "1KERB")) for v in m["P"]]
+    grass = [v for m in meshes if m["name"].upper().startswith("1GRASS") for v in m["P"]]
+    if drive and grass:
+        cell = 8.0
+        buckets: dict[tuple[int, int], list] = {}
+        for x, y, z in drive:
+            buckets.setdefault((int(x // cell), int(z // cell)), []).append((x, y, z))
+        pokes = worst = 0
+        for gx, gy, gz in grass:
+            ci, cj = int(gx // cell), int(gz // cell); best = None
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for rx, ry, rz in buckets.get((ci + di, cj + dj), ()):
+                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= POKE_R * POKE_R and (best is None or ry > best):
+                            best = ry
+            if best is not None and gy > best + POKE_ABOVE_M:
+                pokes += 1
+                worst = max(worst, gy - best)
+        if pokes > POKE_MAX:
+            fails.append(f"TERRAIN POKE x{pokes} (worst +{worst:.2f} m) — 1GRASS pokes through the "
+                         f"drivable surface in the exported kn5 (>{POKE_MAX} tolerated)")
     return fails
 
 

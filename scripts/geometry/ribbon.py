@@ -62,12 +62,15 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
 
 
 def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
-                  verge_w: float = 2.5, tile_m: float = 4.0, bank_at=None, ground_drop: float = 0.0) -> dict:
-    """A soft graded **verge** that ramps each road edge down to the grass, so the road reads like a
-    real shouldered road instead of a ribbon floating on a hard edge. Inner lip sits at the road edge
-    and road height (``lift`` above the graded terrain); the outer lip is ``verge_w`` m out, at grass
-    height. Built as a physical surface (``1GRASS_*`` in build_mesh) so there is no gap to drop into
-    between the road and the terrain. UVs: U across the verge, V along the road (metres/``tile_m``)."""
+                  verge_w: float = 2.5, tile_m: float = 4.0, bank_at=None, ground_drop: float = 0.0,
+                  ground=None, ratio: float = 2.0, max_w: float = 60.0) -> dict:
+    """A graded **verge + embankment** that ramps each road edge down (fill) or up (cut) to the REAL
+    ground, so the road reads like a real shouldered/embanked road instead of a ribbon floating on a
+    hard edge. Three points out from the lane edge: inner lip (road edge, ``lift`` proud) → a short
+    ``verge_w`` band just below it (the gentle drivable band) → a GROUND-MEET point DRAPED onto
+    ``ground(x,z)`` at a ``ratio``:1 slope, so the outer edge sits flush on the terrain however far
+    below/above the road it is (no floating ribbon edge, no cliff). Without ``ground`` it falls back to
+    the old two-point verge at ``road_edge − ground_drop``. Physical (``1GRASS_*`` in build_mesh)."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
@@ -75,6 +78,7 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
+    P = 3 if ground is not None else 2
     for side in (1.0, -1.0):
         rows: list[int] = []
         arc = 0.0
@@ -87,46 +91,58 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             half = widths_m[i] / 2.0
             tb = math.tan(bank_at(arc)) if bank_at else 0.0
             r = len(verts)
-            # bank the verge coplanar with the road edge (o = side*half, side*(half+verge)) so it
-            # never pokes above the banked road on the low (inside) side of a cambered corner.
-            verts.append((x + nx * half, y + lift + side * half * tb, z + nz * half))                 # inner lip (road edge)
-            verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb - ground_drop, z + nz * (half + verge_w)))  # outer lip (meets the sunk grass)
+            inner_y = y + lift + side * half * tb
+            verts.append((x + nx * half, inner_y, z + nz * half))                 # inner lip (road edge)
             uvs.append((0.0, arc / tile_m))
-            uvs.append((1.0, arc / tile_m))
+            if ground is not None:
+                verge_y = y + side * (half + verge_w) * tb - ground_drop          # gentle band just off the edge
+                verts.append((x + nx * (half + verge_w), verge_y, z + nz * (half + verge_w)))
+                uvs.append((0.5, arc / tile_m))
+                gy0 = ground(x + nx * (half + verge_w), z + nz * (half + verge_w))
+                extra = min(max_w, max(verge_w, abs(verge_y - gy0) * ratio))
+                o = half + verge_w + extra
+                verts.append((x + nx * o, ground(x + nx * o, z + nz * o), z + nz * o))   # ground meet (draped)
+                uvs.append((1.0, arc / tile_m))
+            else:
+                verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb - ground_drop, z + nz * (half + verge_w)))
+                uvs.append((1.0, arc / tile_m))
             rows.append(r)
         last = m if closed else m - 1
         for k in range(last):
             p = rows[k]
             q = rows[(k + 1) % m]
-            tris.append((p, p + 1, q + 1))
-            tris.append((p, q + 1, q))
+            for u in range(P - 1):
+                tris.append((p + u, p + u + 1, q + u + 1))
+                tris.append((p + u, q + u + 1, q + u))
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
 def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
                   curb_h: float = 0.15, curb_face_w: float = 0.08, sidewalk_w: float = 1.5,
                   grade_w: float = 1.0, grass_clearance: float = 0.25, tile_m: float = 2.0,
-                  bank_at=None) -> dict:
+                  bank_at=None, ground=None, ratio: float = 2.0, max_grade_w: float = 60.0) -> dict:
     """A continuous urban edge swept along BOTH road sides as ONE strip so road, curb, sidewalk and
-    grass share seam vertices and nothing can hover. Per side, the cross-section is four profile points
+    grass share seam vertices and nothing can hover. Per side, the cross-section is five profile points
     out from the lane edge:
-      0  lane edge   — identical to the road-ribbon edge (road height, ``lift`` proud) → road↔curb meets
-      1  curb top    — raised ``curb_h`` over a slight ``curb_face_w`` batter (mountable, not a wall)
+      0  lane edge    — identical to the road-ribbon edge (road height, ``lift`` proud) → road↔curb meets
+      1  curb top     — raised ``curb_h`` over a slight ``curb_face_w`` batter (mountable, not a wall)
       2  sidewalk back— flat walkway ``sidewalk_w`` wide at curb-top height
-      3  grass meet   — graded down ``grade_w`` to the grass-conform height (road edge − ``grass_clearance``)
-    Heights are referenced to the BANKED road edge (``side*half*tan(bank)``) — the same height the grass is
-    conformed to — so the outer lip lands exactly on the graded terrain on cambered corners too. Physical
-    (``1KERB_sidewalk`` in build_mesh). UVs: U across the profile, V along the road (m/``tile_m``)."""
+      3  slope start  — a short ``grade_w`` verge dropping just below the sidewalk (the gentle band)
+      4  GROUND MEET  — an EMBANKMENT point DRAPED onto the actual grass surface: it marches outward at a
+                        ``ratio``:1 fill/cut slope until it reaches ``ground(x,z)`` (the graded terrain),
+                        so the edge sits flush on the ground however far below the road it is — no float,
+                        no shadow-casting gap, at road resolution (independent of the coarse grass grid).
+    Without ``ground`` it falls back to the old fixed ``road_edge − grass_clearance`` lip. Physical
+    (``1KERB_sidewalk``). UVs: U across the profile, V along the road (m/``tile_m``)."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
     m = n - 1 if closed else n
-    # (offset beyond half-width, height above the banked road edge)
-    profile = [(0.0, lift), (curb_face_w, lift + curb_h),
-               (curb_face_w + sidewalk_w, lift + curb_h),
-               (curb_face_w + sidewalk_w + grade_w, -grass_clearance)]
-    total_w = profile[-1][0] or 1e-9
-    P = len(profile)
+    fixed = [(0.0, lift), (curb_face_w, lift + curb_h),
+             (curb_face_w + sidewalk_w, lift + curb_h),
+             (curb_face_w + sidewalk_w + grade_w, -grass_clearance)]   # points 0..3 (relative to banked edge)
+    sidewalk_off = curb_face_w + sidewalk_w + grade_w
+    P = 5
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
@@ -141,17 +157,32 @@ def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             nx, nz = -tz * side, tx * side  # outward normal on this side
             half = widths_m[i] / 2.0
             edge_bank = side * half * (math.tan(bank_at(arc)) if bank_at else 0.0)
+            base_y = y + edge_bank
             r = len(verts)
-            for off, h in profile:
+            for off, h in fixed:
                 o = half + off
-                verts.append((x + nx * o, y + edge_bank + h, z + nz * o))
-                uvs.append((off / total_w, arc / tile_m))
+                verts.append((x + nx * o, base_y + h, z + nz * o))
+                uvs.append((off / sidewalk_off, arc / tile_m))
+            # point 4: drape onto the ground at a fill/cut slope
+            verge_y = base_y - grass_clearance             # height at the slope-start point (3)
+            if ground is not None:
+                gy0 = ground(x + nx * (half + sidewalk_off + grade_w), z + nz * (half + sidewalk_off + grade_w))
+                extra = max(grade_w, abs(verge_y - gy0) * ratio)
+                extra = min(extra, max_grade_w)
+                o4 = half + sidewalk_off + extra
+                g4 = ground(x + nx * o4, z + nz * o4)
+                verts.append((x + nx * o4, g4, z + nz * o4))
+                uvs.append(((sidewalk_off + extra) / sidewalk_off, arc / tile_m))
+            else:
+                o4 = half + sidewalk_off + grade_w
+                verts.append((x + nx * o4, verge_y, z + nz * o4))
+                uvs.append(((sidewalk_off + grade_w) / sidewalk_off, arc / tile_m))
             rows.append(r)
         last = m if closed else m - 1
         for k in range(last):
             a = rows[k]
             b = rows[(k + 1) % m]
-            for p in range(P - 1):                      # curb face, sidewalk top, back grade
+            for p in range(P - 1):                      # curb face, sidewalk top, verge, embankment
                 tris.append((a + p, a + p + 1, b + p + 1))
                 tris.append((a + p, b + p + 1, b + p))
     return {"vertices": verts, "uvs": uvs, "tris": tris}
@@ -230,6 +261,86 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
             elif d <= reach:
                 t = (d - corridor) / blend
                 row[k] = (gx, tgt * (1 - t) + gy * t, gz)
+
+
+def grade_embankment(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
+                     widths_m: list[float] | None = None, *, band: float = 4.0, ratio: float = 2.0,
+                     clearance: float = 0.0, bank_at=None, extra_roads=None,
+                     bridge_of=None) -> None:
+    """Build the terrain UP from the real ground to the road — an EMBANKMENT (fill) where the road sits
+    above bare earth, a CUT where it sits below — instead of pulling the whole corridor UP to a flat
+    plateau (the old ``conform_terrain_to_road``, which buried valleys under a 10 m mesa the car floats on).
+
+    For each grid node, referenced to the nearest road-surface sample (centre + both banked edges):
+      • within ``band`` m of the road  → held at ``road_edge - clearance`` (a gentle, drivable shelf that
+        the shoulder/kerb meets flush — the "hybrid" gentle band),
+      • beyond ``band``                → ramps toward the node's OWN bare-earth height at a ``ratio``:1
+        slope (2:1 ≈ 27°). Fill descends from the shelf down to real ground; cut rises up to it. Once it
+        reaches natural ground it STAYS there — so the real valley/hillside is preserved, and running off
+        is a slope to the real ground, not a fall off a tabletop edge.
+
+    Mutates ``grid_xyz`` in place (Y only). ``bridge_of(station_m) -> bool`` (optional) marks stations the
+    road crosses on a BRIDGE: fill is suppressed there (the terrain keeps its natural creek/valley height
+    so the deck can span it). On a near-flat racetrack the fills are tiny, so this reads as the "smooth
+    gradations to the ground" a purpose-built circuit wants — same code path, no special-casing."""
+    from collections import defaultdict
+    slope = 1.0 / max(ratio, 1e-3)
+    samples, _ = _road_surface_samples(centerline_m, widths_m, bank_at)
+    # tag each sample with its lap station so bridge spans can suppress fill under a deck
+    stationed = []
+    arc = 0.0
+    prev = None
+    # recompute per-sample station: samples come grouped (centre,left,right) per centerline vertex; use the
+    # centerline arc at that vertex. Rebuild arc alongside _road_surface_samples' vertex order.
+    cl_arc = [0.0]
+    for i in range(1, len(centerline_m)):
+        cl_arc.append(cl_arc[-1] + math.hypot(centerline_m[i][0] - centerline_m[i - 1][0],
+                                              centerline_m[i][2] - centerline_m[i - 1][2]))
+    for (sx, sy, sz, si) in samples:
+        stationed.append((sx, sy, sz, cl_arc[si] if si < len(cl_arc) else 0.0))
+    for ec, ew in (extra_roads or []):        # connectors: graded too, no bridge, no station
+        for (sx, sy, sz, _si) in _road_surface_samples(ec, ew, None)[0]:
+            stationed.append((sx, sy, sz, -1.0))
+    reach = band + 60.0                        # search radius: band + a tall fill's run (30 m fill @2:1 = 60 m)
+    cell = 24.0
+    BRIDGE_CLEAR = 14.0                         # keep terrain NATURAL within this of a bridge-span road point
+    buckets: dict[tuple[int, int], list] = defaultdict(list)
+    bridge_buckets: dict[tuple[int, int], list] = defaultdict(list)
+    for sx, sy, sz, sstn in stationed:
+        buckets[(int(sx // cell), int(sz // cell))].append((sx, sy, sz))
+        if bridge_of is not None and sstn >= 0 and bridge_of(sstn):
+            bridge_buckets[(int(sx // cell), int(sz // cell))].append((sx, sz))
+    R = int(reach // cell) + 1
+    br2 = BRIDGE_CLEAR * BRIDGE_CLEAR
+    for row in grid_xyz:
+        for k in range(len(row)):
+            gx, gy, gz = row[k]                # gy = natural bare earth
+            ci, cj = int(gx // cell), int(gz // cell)
+            best_d2, ref_y = 1e18, None
+            on_bridge = False
+            for di in range(-R, R + 1):
+                for dj in range(-R, R + 1):
+                    for sx, sy, sz in buckets.get((ci + di, cj + dj), ()):
+                        d2 = (gx - sx) ** 2 + (gz - sz) ** 2
+                        if d2 < best_d2:
+                            best_d2, ref_y = d2, sy
+                    if not on_bridge:
+                        for bx, bz in bridge_buckets.get((ci + di, cj + dj), ()):
+                            if (gx - bx) ** 2 + (gz - bz) ** 2 <= br2:
+                                on_bridge = True
+                                break
+            if ref_y is None:
+                continue
+            shelf = ref_y - clearance
+            d = math.sqrt(best_d2)
+            over = max(0.0, d - band)
+            if shelf >= gy:                     # FILL — descend from the shelf to real ground
+                if on_bridge:
+                    continue                    # leave the natural creek/valley open so the deck spans it
+                tgt = max(gy, shelf - slope * over)
+            else:                               # CUT — rise from the shelf to real ground
+                tgt = min(gy, shelf + slope * over)
+            row[k] = (gx, tgt, gz)
 
 
 def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vertex],
