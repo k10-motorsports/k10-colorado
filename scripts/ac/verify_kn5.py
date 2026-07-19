@@ -31,7 +31,9 @@ from pathlib import Path
 DRIVABLE = ("1ROAD", "1GRASS", "1KERB", "1RUNOFF", "1LAWN")
 VERT_CAP = 65535
 FACE_UP_MIN = 0.90          # ≥90% of a drivable mesh's faces must point up (rest = holes_fill scraps)
-PIT_ROAD_MAX_M = 8.0        # a pit/start box must be within this of a 1ROAD vertex
+PIT_ROAD_MAX_M = 13.5       # a pit/start box must be within this of a 1ROAD vertex — the nearest road vert
+#                            is an EDGE vert, so a centreline spawn sits ~half-width away; real widths +
+#                            junction flares reach ~25 m wide, so allow ~half of that (was 8 m for ~16 m roads)
 PIT_DY_MAX_M = 1.0          # ...and within this height of it
 POKE_ABOVE_M = 0.15         # a 1GRASS vert this far above a nearby drivable (road/kerb) vert = a poke
 POKE_R = 5.0                # horizontal reach (matches geometry/audit_mesh.py check B)
