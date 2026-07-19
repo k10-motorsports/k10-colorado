@@ -129,15 +129,12 @@ def _smooth(vals: list[float], win: int = 9) -> list[float]:
 MAJOR = {"motorway", "trunk", "primary", "secondary", "tertiary"}   # "real" intersections cross these
 
 
-def detect_junctions(ways: list[dict], cl: list[Vertex], local_pts: list, *, near_m: float = 16.0,
-                     dedupe_m: float = 38.0) -> list[dict]:
+def detect_junctions(ways: list[dict], cl: list[Vertex], *, near_m: float = 16.0) -> list[dict]:
     """Real intersections the circuit drives THROUGH: OSM nodes where ≥2 ARTERIAL (tertiary+) ways meet,
-    within ``near_m`` of the racing line — i.e. the corners where the circuit turns street-to-street and
-    the major crossings, NOT every minor residential T-junction (the through-road width already covers
-    those). Each becomes a paved pad, oriented to the racing line, sized to the widest crossing street.
-    Returns ``[{x,y,z,size,tx,tz}]`` in the LOCAL (un-mirrored) frame, placed at the nearest centerline
-    vertex (the junction is on the racing line) so no re-projection is needed. Clustered nodes of one big
-    intersection dedupe to a single pad."""
+    within ``near_m`` of the racing line — the corners where the circuit turns street-to-street and the
+    major crossings, NOT every minor residential T-junction. Returns ``[{idx, size}]`` — the centerline
+    vertex index nearest the junction + the intersection's pavement size — used to FLARE the road ribbon
+    width there (one continuous surface, no overlapping pad → no bumps)."""
     from collections import defaultdict
     node_ll: dict[int, Vertex] = {}
     node_ways: dict[int, list[int]] = defaultdict(list)
@@ -148,10 +145,10 @@ def detect_junctions(ways: list[dict], cl: list[Vertex], local_pts: list, *, nea
     lat0 = sum(p[1] for p in cl) / len(cl)
     kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0
     clx = [c[0] * kx for c in cl]; clz = [c[1] * ky for c in cl]
-    pads: list[dict] = []
+    out: list[dict] = []
     for nid, wl in node_ways.items():
         major = {wi for wi in wl if ways[wi].get("highway") in MAJOR}
-        if len(major) < 2:                         # need ≥2 arterial ways = a real intersection/corner
+        if len(major) < 2:
             continue
         lo, la = node_ll[nid]
         nx, nz = lo * kx, la * ky
@@ -160,21 +157,34 @@ def detect_junctions(ways: list[dict], cl: list[Vertex], local_pts: list, *, nea
             d2 = (nx - clx[k]) ** 2 + (nz - clz[k]) ** 2
             if d2 < best_d2:
                 best_d2, best_k = d2, k
-        if best_k < 0:
-            continue
-        size = max(pavement_width(ways[wi]) for wi in major) + 3.0
-        x, y, z = local_pts[min(best_k, len(local_pts) - 1)]
-        a = local_pts[max(0, best_k - 1)]; b = local_pts[min(len(local_pts) - 1, best_k + 1)]
-        tx, tz = b[0] - a[0], b[2] - a[2]
-        tl = math.hypot(tx, tz) or 1.0
-        pads.append({"x": round(x, 2), "y": round(y, 2), "z": round(z, 2), "size": round(size, 1),
-                     "tx": round(tx / tl, 4), "tz": round(tz / tl, 4)})
-    pads.sort(key=lambda p: -p["size"])
-    kept: list[dict] = []
-    for p in pads:
-        if all((p["x"] - q["x"]) ** 2 + (p["z"] - q["z"]) ** 2 > dedupe_m * dedupe_m for q in kept):
-            kept.append(p)
-    return kept
+        if best_k >= 0:
+            out.append({"idx": best_k, "size": max(pavement_width(ways[wi]) for wi in major) + 3.0})
+    return out
+
+
+def flare_widths(widths: list[float], cl: list[Vertex], junctions: list[dict], *, blend_m: float = 7.0) -> list[float]:
+    """Widen the road at each junction to the intersection's pavement size, tapering back to the street
+    width over ``blend_m`` — a smooth flare baked INTO the ribbon width (no overlapping pad, so no bump).
+    Half the pad extends ahead/behind the junction along the road; the taper reaches ``blend_m`` past that."""
+    lat0 = sum(p[1] for p in cl) / len(cl)
+    kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0
+    arc = [0.0]
+    for i in range(1, len(cl)):
+        arc.append(arc[-1] + math.hypot((cl[i][0] - cl[i - 1][0]) * kx, (cl[i][1] - cl[i - 1][1]) * ky))
+    out = widths[:]
+    n = len(widths)
+    for j in junctions:
+        k = min(j["idx"], n - 1)
+        size = j["size"]
+        half = size / 2.0                                 # full flare within ±half of the junction
+        reach = half + blend_m
+        for i in range(n):
+            d = abs(arc[i] - arc[k])
+            if d > reach:
+                continue
+            f = 1.0 if d <= half else max(0.0, 1.0 - (d - half) / blend_m)   # 1 at the box, taper to 0
+            out[i] = max(out[i], out[i] + (size - out[i]) * f)              # only ever widens
+    return out
 
 
 def build(project_dir: str | Path) -> dict:
@@ -196,6 +206,10 @@ def build(project_dir: str | Path) -> dict:
     idx = _match_per_vertex(cl, ways)
     widths_cl = [pavement_width(ways[wi] if wi >= 0 else None) for wi in idx]
     widths_cl = _smooth(widths_cl)
+    # FLARE the ribbon at the real intersections the circuit drives through (widen the road itself, one
+    # continuous surface — NOT an overlapping pad, which poked above the sloped road and read as bumps).
+    junctions = detect_junctions(ways, cl)
+    widths_cl = flare_widths(widths_cl, cl, junctions)
     # resample widths to the LOCAL vertex count if they differ (nearest by fractional index)
     if len(widths_cl) != n_local:
         widths = [widths_cl[min(len(widths_cl) - 1, round(i * (len(widths_cl) - 1) / max(n_local - 1, 1)))]
@@ -206,11 +220,11 @@ def build(project_dir: str | Path) -> dict:
     local["widths_m"] = widths
     local["default_width_m"] = round(sum(widths) / len(widths), 2)
     (data / "centerline.local.json").write_text(json.dumps(local), encoding="utf-8")
-
-    # intersection pads at the real junctions the circuit drives through
-    local_pts = local.get("points_xyz_m", [])
-    junctions = detect_junctions(ways, cl, local_pts) if local_pts else []
-    (data / "intersections.local.json").write_text(json.dumps({"intersections": junctions}), encoding="utf-8")
+    # the overlapping-pad approach is gone; remove any stale pad file so build_mesh lays none.
+    try:
+        (data / "intersections.local.json").unlink()
+    except OSError:
+        pass
 
     # per-street summary
     from collections import defaultdict
@@ -235,7 +249,7 @@ def main() -> None:
     st = build(sys.argv[1])
     print(f"widths_from_osm: {st['vertices']} verts  matched {st['matched_pct']}%  "
           f"width min/median/max = {st['min_w']}/{st['median_w']}/{st['max_w']} m  "
-          f"intersection pads = {st['junctions']}")
+          f"junction flares = {st['junctions']}")
     for cnt, nm, hw, ln, w in st["streets"]:
         print(f"  {cnt:5d}v  {nm:32s} {hw:12s} lanes={ln!s:>3}  -> {w} m")
 
