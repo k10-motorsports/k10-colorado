@@ -1,7 +1,7 @@
 {
   "name": "Second Creek Raceway",
   "slug": "second_creek",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 10.0,
@@ -58,5 +58,13 @@
     "type": "kml",
     "kml": "",
     "_note": "centerline.geojson provided directly (traced)"
+  },
+  "route": {
+    "reverse": true,
+    "start_at": [
+      39.8595,
+      -104.7896
+    ],
+    "_orientation_doc": "Research 2026-07-20: Second Creek ran CLOCKWISE as the primary direction (SCCA-CDR kept separate CW/CCW record books; CW records to 1985, CW is faster). Our ring was CCW -> reverse. S/F on the Buckley Straight (the old Denver Dragway strip, west edge, cars heading NORTH into the Oval Turn), ~39.8595,-104.7896. Pit Road ~280 m on the WEST side of the straight (driver's left), entry mid-straight, exit at the Oval Turn. A CCW layout (2001-2005 era) is a future variant."
   }
 }
