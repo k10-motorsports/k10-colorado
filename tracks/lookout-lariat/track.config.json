@@ -1,0 +1,119 @@
+{
+  "name": "Lookout Mountain Lariat",
+  "slug": "lookout_lariat",
+  "version": "0.1.0",
+  "mirror_x": true,
+  "osm_road_widths": true,
+  "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
+  "location": {
+    "lat": 39.727,
+    "lon": -105.225,
+    "timezone": "America/Denver",
+    "city": "Golden",
+    "country": "United States"
+  },
+  "source": {
+    "type": "osm",
+    "_doc": "No KML \u2014 the whole loop lives on the OSM road network, fetched by route.roads. 'ref:' entries match numbered highways whose ways are unnamed in OSM (rural US routes); motorways are excluded so US-40/US-6 refs never drag I-70 in."
+  },
+  "route": {
+    "width_profile": "mountain",
+    "start_at": [
+      39.7424,
+      -105.2285
+    ],
+    "_start_at_doc": "Station 0 = the Lariat Trail stone gates on 19th St (the route doc's start/finish gantry). Also keeps the pit boxes off the US-6 interchange gore, where AC_PIT_2 previously spawned 1.3 m off-road.",
+    "_width_profile_doc": "Rural width table in widths_from_osm (3.0 m lanes, no urban parking/turn allowances): Lariat Trail ~6.5 m, US-40 ~9 m, one US-6 carriageway ~9 m \u2014 instead of the urban table's 11/18 m.",
+    "bbox": [
+      39.693,
+      -105.265,
+      39.758,
+      -105.183
+    ],
+    "roads": [
+      "19th Street",
+      "Lookout Mountain Road",
+      "Paradise Road",
+      "ref:US 40",
+      "ref:US 6",
+      "id:484287799,1351773584,533503588,533503214"
+    ],
+    "_roads_doc": "Paradise Road is the historic Lariat Loop leg through the Mount Vernon townsite \u2014 it tees off Lookout Mountain Rd and drops to US-40 at the exit-256 junction. Without it there is a 1.1 km hole (Lookout Mtn Rd itself never touches US-40). The id: entry is the US-6 northbound off-ramp at the 19th St interchange \u2014 19th St crosses US-6 on a bridge, so closing the ring mainline-to-bridge directly creates a fake 6.5 m vertical step (a 17% launch ramp at start/finish); the lap must climb the real ramp.",
+    "connectors": {}
+  },
+  "loop": true,
+  "default_width_m": 7.0,
+  "width_overrides": [],
+  "road_text": {
+    "enabled": false,
+    "_doc": "No painted street-name decals — they land in the wrong places on this rural loop (Kevin), and mountain roads don't have them anyway."
+  },
+  "road_profile": {
+    "_doc": "Elevation is 100% real USGS 3DEP along the route \u2014 ~1,300 ft from the 19th St gates to the Buffalo Bill summit (~7,375 ft). No hand-authored dips/cambers; the mountain provides them. max_grade_pct 16 clears the real steepest pitch (Paradise Rd -14.5%) \u2014 the default 6% cap flattened the descent and floated the road metres above the canyon floor.",
+    "max_grade_pct": 16.0,
+    "dips": [],
+    "cambers": []
+  },
+  "scenery": {
+    "_doc": "Foothills pine forest, not urban grid: dense conifer fill over ALL non-road terrain (tree_style 'conifer'), no buildings/powerlines. Streetlights ON per Kevin: yellow, at 96 m (double the 48 m urban default \u2014 sparse mountain-road pools). corridor_margin_m keeps trunks clear of the pavement and its shoulders.",
+    "tree_style": "conifer",
+    "fill_terrain": true,
+    "corridor_margin_m": 4.0,
+    "tree_step_m": 11.0,
+    "tree_cap": 9000,
+    "fill_range_m": 150.0,
+    "fill_per_station": 3,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 9.0,
+    "bush_density": 0.35,
+    "bush_off_min_m": 5.0,
+    "bush_off_span_m": 25.0,
+    "bush_size_min_m": 0.9,
+    "bush_size_span_m": 1.1,
+    "light_spacing_m": 96,
+    "powerline_spacing_m": 0,
+    "signs": {
+      "enabled": false
+    }
+  },
+  "origin": "centroid",
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": [],
+      "_doc": "One layout: gates -> Lariat Trail switchback climb -> Buffalo Bill summit -> Lookout Mountain Rd south to US-40 (Mount Vernon, exit 256) -> US-40 down Mt Vernon Canyon past Heritage Square -> US-6 north -> 19th St -> gates. ~20.9 km, the Nordschleife-length ring."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ],
+    "grassfx": true,
+    "streetlight": {
+      "_doc": "Yellow lamps (Kevin). color = thrown CSP light 0..1 rgb, emissive_color = lens glow 0..255 rgb. range_m 48 (vs 24 default): posts sit 96 m apart, so the doubled throw keeps a faint continuous ribbon between pools instead of dark gaps. intensity 2.5 + emissive 0.25: Kevin finds even the project-default 5.0 pools too bright \u2014 large, dim pools, not floodlights.",
+      "range_m": 48.0,
+      "intensity": 2.5,
+      "emissive": 0.25,
+      "color": [
+        1.0,
+        0.85,
+        0.3
+      ],
+      "emissive_color": [
+        255,
+        220,
+        60
+      ]
+    }
+  },
+  "true_north_rotation_deg": 180.0
+}

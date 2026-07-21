@@ -138,11 +138,15 @@ def generate(project_dir: str | Path) -> Path:
         sl_i = sl.get("intensity", 5.0)     # CSP local-light intensity (was 30)
         sl_r = sl.get("range_m", 24.0)      # reach in metres (was 38) — pools no longer fully overlap
         sl_e = sl.get("emissive", 0.35)     # lamp-lens ksEmissive brightness 0..~1 (was 0.5)
+        # lamp hue, config-tunable: color = thrown light (0..1 rgb), emissive_color = lens glow
+        # (0..255 rgb). Defaults are the original warm sodium.
+        sl_c = sl.get("color", [1.0, 0.82, 0.55])
+        sl_ec = sl.get("emissive_color", [255, 209, 166])
         out += ["; --- Streetlights: one light per cobra head + glowing lens at night ----------",
                 "[LIGHT_SERIES_STREETLIGHTS]",
                 "MESHES = LIGHTS",
                 "OFFSET = 0, -0.1, 0         ; LIGHTS is the compact lamp head (~8.8 m); drop at the lens",
-                f"COLOR = 1.0, 0.82, 0.55, {sl_i} ; warm sodium; 4th = intensity (lighting.streetlight.intensity)",
+                f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i} ; rgb = lighting.streetlight.color; 4th = intensity (lighting.streetlight.intensity)",
                 "COLOR_OFF = 0, 0, 0, 0      ; fully off by day",
                 "CONDITION = NIGHT_SMOOTH    ; ramp on at dusk (CSP pre-shipped condition)",
                 f"RANGE = {sl_r}             ; metres (lighting.streetlight.range_m)",
@@ -153,7 +157,7 @@ def generate(project_dir: str | Path) -> Path:
                 "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                f"VALUE_0 = 255, 209, 166, {sl_e}  ; lamp-lens glow: 0-255 RGB + brightness (lighting.streetlight.emissive)",
+                f"VALUE_0 = {sl_ec[0]}, {sl_ec[1]}, {sl_ec[2]}, {sl_e}  ; lamp-lens glow: 0-255 RGB (lighting.streetlight.emissive_color) + brightness (lighting.streetlight.emissive)",
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 

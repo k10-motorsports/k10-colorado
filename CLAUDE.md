@@ -91,6 +91,7 @@ k10-colorado/
 | Track | Source | Location fidelity |
 |-------|--------|-------------------|
 | Sand Creek | real KML + capture + textures | **real** (Commerce City) |
+| Lookout Lariat | OSM route (named + `ref:` + `id:` roads) | **real** (Golden foothills, 25 km mountain loop) |
 | IMI | aerial trace | **real** (Dacono) |
 | High Plains, Aspen, PPIR oval/infield, Second Creek | rough KML traces | ⚠ **fabricated compressed lat/lon** from the old unified map — **re-source to the real location + real aerial + real elevation** as we get to each one |
 

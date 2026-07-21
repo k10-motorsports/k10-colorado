@@ -41,6 +41,7 @@ TEXTURES = {
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
+    "CONIFER": ("conifer_atlas.png", None, 0.90, (0.09, 0.20, 0.09, 1), 0.0, False),  # pine/spruce billboards (mountain tracks, scenery.tree_style "conifer")
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),  # cobra-head lamp lens ONLY — CSP lights it (ksEmissive) at night
     "LIGHTPOST": (None, None, 0.60, (0.28, 0.29, 0.31, 1), 0.5, False),  # dark galvanized streetlight mast + arm (non-emissive)
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
@@ -53,7 +54,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS"}
+BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS"}
 
 
 def texture_dir() -> Path:
