@@ -344,7 +344,8 @@ def grade_embankment(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
 
 
 def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vertex],
-                             *, reach: float = 11.0, clear: float = 0.25, cell: float = 12.0) -> None:
+                             *, reach: float = 11.0, clear: float = 0.25, cell: float = 12.0,
+                             grid_spacing: float | None = None) -> None:
     """One-sided ANTI-POKE against the ACTUAL built road surface. For every terrain grid node within
     ``reach`` m of a road vertex, if the node sits above ``road_y - clear`` push it DOWN to that level so
     no grass triangle pokes up through the drivable ribbon. Never RAISES a node (natural dips survive).
@@ -354,6 +355,12 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
     are the true surface. Run AFTER road_ribbon (post-bank, post-lift) and conform, BEFORE grass_terrain.
     Mutates ``grid_xyz`` in place. Mirror-agnostic: road_verts and grid_xyz must be in the SAME frame."""
     from collections import defaultdict
+    # reach must cover the terrain grid's cell DIAGONAL past the road edge, or the first un-clamped
+    # node up-slope bridges its triangle back over the pavement (195 wheel-path ground-throughs on
+    # the Lariat at reach=11 vs 13.4 m cells — the drive test sees the faces, not the vertices).
+    if grid_spacing is not None:
+        reach = max(reach, grid_spacing * 1.5 + 0.5)
+    cell = max(cell, reach)
     buckets: dict[tuple[int, int], list[Vertex]] = defaultdict(list)
     for x, y, z in road_verts:
         buckets[(int(x // cell), int(z // cell))].append((x, y, z))

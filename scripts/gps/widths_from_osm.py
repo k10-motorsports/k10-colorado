@@ -39,6 +39,15 @@ MOUNTAIN_CLASS = {
 }
 MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+def haversine_m(a: Vertex, b: Vertex) -> float:
+    r = 6_371_000.0
+    (lo1, la1), (lo2, la2) = a, b
+    p1, p2 = math.radians(la1), math.radians(la2)
+    dp, dl = math.radians(la2 - la1), math.radians(lo2 - lo1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(h))
 DRIVABLE = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|service"
 
 
@@ -225,6 +234,19 @@ def build(project_dir: str | Path) -> dict:
     # continuous surface — NOT an overlapping pad, which poked above the sloped road and read as bumps).
     junctions = detect_junctions(ways, cl, profile=profile)
     widths_cl = flare_widths(widths_cl, cl, junctions)
+    # TAPER RATE LIMIT: real lane adds/gores open at ~1:7 or shallower. Map-matched widths step
+    # hard when the matched way changes (mainline vs turn pocket vs ramp) — up to 6 m per 3 m
+    # vertex on the US-6 corridor — and each step ships as a sawtooth edge / a 1-2 m shoulder
+    # cliff at the gore. Forward+backward passes cap |dW/ds| at 0.15 m/m.
+    st = [0.0]
+    for i in range(1, len(cl)):
+        st.append(st[-1] + haversine_m(cl[i - 1], cl[i]))
+    for rng in (range(1, len(widths_cl)), range(len(widths_cl) - 2, -1, -1)):
+        for i in rng:
+            j = i - 1 if rng.step == 1 else i + 1
+            ds = abs(st[i] - st[j])
+            if widths_cl[i] > widths_cl[j] + 0.15 * ds:
+                widths_cl[i] = widths_cl[j] + 0.15 * ds
     # resample widths to the LOCAL vertex count if they differ (nearest by fractional index)
     if len(widths_cl) != n_local:
         widths = [widths_cl[min(len(widths_cl) - 1, round(i * (len(widths_cl) - 1) / max(n_local - 1, 1)))]

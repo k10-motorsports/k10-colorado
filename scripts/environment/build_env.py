@@ -445,7 +445,11 @@ def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.
         return math.sqrt(best)
 
     n = len(loop)
-    flag = [near_w(loop[i][0], loop[i][2]) < widths[i] / 2 + 8 for i in range(n)]
+    # A bridge exists where the waterway passes UNDER the road — the line comes within ~2.5 m of the
+    # centreline. The old test (w/2 + 8) also caught waterways running PARALLEL just off the verge
+    # (plains irrigation ditches along US-6/Colfax) and built 50+ stations of parapet alongside the
+    # lane — Kevin's "crazy wall stuff down in the plains".
+    flag = [near_w(loop[i][0], loop[i][2]) < 2.5 for i in range(n)]
     spans, i = [], 0
     while i < n:
         if flag[i]:
@@ -794,7 +798,10 @@ def build(project_dir: str | Path) -> dict:
             # Seat on the CONFORMED ground at the pole's OWN verge location — not the road centerline y,
             # which left the base floating ~0.25 m+ over the clamped grass beside the road (and more where
             # the verge slopes off). trees/bushes already use ground_y; poles now match.
-            shaft, lamphead = _streetlight(px, ground_y(px, pz), pz, nx, nz)   # arm reaches +n back over the lane
+            gy_pole = ground_y(px, pz)
+            if y - gy_pole > 4.0:      # verge falls away on a fill — a pole planted mid-embankment
+                continue               # puts its cobra head at windshield height over the lane; skip
+            shaft, lamphead = _streetlight(px, gy_pole, pz, nx, nz)   # arm reaches +n back over the lane
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
             nlights += 1

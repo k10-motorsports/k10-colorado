@@ -158,6 +158,42 @@ def build_ring(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float
     return ring, corner_gaps
 
 
+def remove_folds(ring: list[Vertex], *, apex_deg: float = 150.0) -> list[Vertex]:
+    """Collapse out-and-back spikes left by junction trims. Where two fetched roads OVERLAP along a
+    shared carriageway for a few metres, build_ring's nearest-pair trim walks the ring out past the
+    corner and straight back — a fold. The swept ribbon then lays two decks on top of each other:
+    3 m 'steps', phantom obstructions, grass between the layers (the Lariat's ramp gore and the
+    Colfax junction both had one). A fold shows as a near-reversal at a single vertex (>150 deg);
+    real hairpins spread their 180 deg over many vertices and never trip it. Removing the apex
+    re-exposes the next reversal until the whole stub dissolves."""
+    pts = list(ring)
+    changed = True
+    removed = 0
+    while changed and len(pts) > 3:
+        changed = False
+        i = 1
+        while i < len(pts) - 1:
+            v1 = (pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+            v2 = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+            n1 = math.hypot(*v1)
+            n2 = math.hypot(*v2)
+            if n1 < 1e-12 or n2 < 1e-12:
+                del pts[i]
+                changed = True
+                removed += 1
+                continue
+            cosang = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+            if cosang < math.cos(math.radians(apex_deg)):   # direction change > apex_deg = backtrack
+                del pts[i]
+                changed = True
+                removed += 1
+                continue
+            i += 1
+    if removed:
+        print(f"  [centerline] removed {removed} fold vertices (out-and-back junction stubs)")
+    return pts
+
+
 def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Vertex]:
     """Resample a polyline to even ``spacing_m`` spacing (linear interp; fine at metre scale)."""
     if len(pl) < 2:
@@ -217,6 +253,7 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
         raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
 
     ring, corner_gaps = build_ring(road_lines)
+    ring = remove_folds(ring)
     # route.start_at = [lat, lon]: rotate the closed ring so station 0 (start/finish, pits, hotlap
     # spawn — dummies all key off station 0) sits at the real-world start line instead of wherever
     # the first roads[] entry happened to get trimmed. The Lariat's list order put station 0 in the
