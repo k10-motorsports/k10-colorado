@@ -1,10 +1,10 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "mirror_x": true,
   "osm_road_widths": true,
-  "_osm_road_widths_doc": "Real street circuit — after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
+  "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
   "capture": {
     "_doc": "Sand Creek is a ROAD circuit stitched from real Commerce City streets, so its elevation is the REAL road-surface profile: USGS 3DEP sampled ALONG the real street centerline (3 m spacing), median-despiked + smoothed into a launch-free longitudinal grade, with the terrain conforming DOWN to that road. The phone's GPS/baro altitude is NOT used \u2014 it is too noisy on flat terrain and injected fake metre-scale bumps (56th/45th/Sand Creek Dr) and a phone-fell dip (~idx 1240); use_elevation=false ignores it. Captured TEXTURES and lateral evidence in realworld_capture.json ARE still consumed (do not delete the file). 'bridges' is RETAINED: evidence.level_bridge_decks uses it to hold a LEVEL deck (geometry only, no phone) over the two real Sand Creek crossings where bare-earth 3DEP dives into the creek bed \u2014 E 56th over Sand Creek (station ~2485, bare earth dips ~7 m) and Quebec over Sand Creek (station ~5950, ~6 m); both also get visual parapets/piers from build_env._creek_bridge. 'bridges' = [{center_m, len_m}] in lap-station metres.",
     "use_elevation": false,

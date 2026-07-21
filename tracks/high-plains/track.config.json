@@ -1,7 +1,7 @@
 {
   "name": "High Plains Raceway",
   "slug": "high_plains",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
