@@ -1,7 +1,7 @@
 {
   "name": "Pueblo Motorsports Park",
   "slug": "pueblo_motorsports_park",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
@@ -63,5 +63,12 @@
     "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
     "dips": [],
     "cambers": []
+  },
+  "route": {
+    "start_at": [
+      38.3,
+      -104.6774
+    ],
+    "_orientation_doc": "Research 2026-07-20: Pueblo Motorsports Park is CLOCKWISE ONLY (track rules); our ring is already CW. S/F on the wide west-side front straight near its south end (~38.3000,-104.6774), raced NNW-bound. Pit lane: east of the front straight (driver's right), ~350 m."
   }
 }

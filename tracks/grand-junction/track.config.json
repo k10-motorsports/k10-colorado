@@ -1,7 +1,7 @@
 {
   "name": "Grand Junction Motor Speedway",
   "slug": "grand_junction",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 9.75,
@@ -63,5 +63,12 @@
     "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
     "dips": [],
     "cambers": []
+  },
+  "route": {
+    "start_at": [
+      39.1087,
+      -108.4918
+    ],
+    "_orientation_doc": "Research 2026-07-20: GJMS deliberately runs BOTH directions by event; CW is the default (LapMeta primary variation). Our ring is CW. S/F on the east-side main straight beside the paddock (~39.1087,-108.4918), CW = heading south into the SE hairpin. Pit lane parallel on the east (paddock) side, ~150 m, openings both ends. A CCW layout variant is a future option (reverse: true)."
   }
 }

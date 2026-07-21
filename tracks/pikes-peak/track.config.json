@@ -1,7 +1,7 @@
 {
   "name": "Pikes Peak International Raceway",
   "slug": "pikes_peak_international_raceway",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 15.0,
@@ -60,23 +60,31 @@
     "_note": "Re-sourced from real OSM highway=raceway way 1134026181 at Fountain, CO (reversed to CW winding), resampled to 3 m via scripts.gps.from_track. Real 1.03-mi D-oval; elevation from USGS 3DEP (real ~2 m sunken bowl, do not flatten)."
   },
   "road_profile": {
-    "_doc": "Real PPIR banking ~10 deg in the two turn arcs (outside edge up), flat on the front/back straights. Turn stations derived from the re-sourced OSM oval's curvature: turn_1_2 ~60-513 m, turn_3_4 ~933-1356 m of the 1650 m lap; start/finish is on the front straight (station 0). NOT a whole-loop constant roll (that was the old cone/volcano). bank_deg sign verified empirically after build so the OUTSIDE edge is higher (negative lifts the outside on this reversed-CW OSM ring); flip sign if it domes inward.",
+    "_doc": "Real PPIR banking ~10 deg in the two turn arcs (outside edge up), flat on the straights. Arcs derived from the REVERSED+rotated (CCW, S/F at grandstand) centerline curvature: 231-666 m, 1007-1443 m of the 1649 m lap. bank_deg +10 (sign flipped vs the old CW ring - outside/inside swap when direction reverses); VERIFY outside-edge-up on first load, flip sign if it domes inward.",
     "dips": [],
     "cambers": [
       {
-        "name": "turn_1_2",
-        "start_m": 60,
-        "len_m": 453,
-        "bank_deg": -10.0,
+        "name": "turn_arc_1",
+        "start_m": 231,
+        "len_m": 435,
+        "bank_deg": 10.0,
         "ramp_m": 50
       },
       {
-        "name": "turn_3_4",
-        "start_m": 933,
-        "len_m": 423,
-        "bank_deg": -10.0,
+        "name": "turn_arc_2",
+        "start_m": 1007,
+        "len_m": 435,
+        "bank_deg": 10.0,
         "ramp_m": 50
       }
     ]
+  },
+  "route": {
+    "reverse": true,
+    "start_at": [
+      38.591,
+      -104.6785
+    ],
+    "_orientation_doc": "Research 2026-07-20: PPIR oval raced COUNTERCLOCKWISE (NASCAR/IRL 1997-2005); S/F mid front stretch in front of the main grandstand (~38.5910,-104.6785), cars heading SSE. Our OSM ring was CW -> route.reverse. Cambers re-derived from curvature after reversal; bank sign flipped (+10) because outside/inside swap when direction reverses \u2014 verify outside-edge-up in Blender/game."
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "IMI Motorsports Complex",
   "slug": "imi_motorsports",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "location": {
     "lat": 40.0423,
     "lon": -104.9482,
@@ -203,5 +203,12 @@
     ],
     "grassfx": true
   },
-  "mirror_x": true
+  "mirror_x": true,
+  "route": {
+    "start_at": [
+      40.0432,
+      -104.9497
+    ],
+    "_orientation_doc": "Research 2026-07-20: IMI paved road course runs COUNTERCLOCKWISE (LapMeta GPS: 11 turns, 0.85 mi). Our ring is already CCW. S/F ~2/3 up the east N-S straight beside the paddock (~40.0432,-104.9497), heading north into the NE corner complex. No formal pit lane \u2014 paddock apron east of the S/F straight (driver's right); a short pit apron there is the honest recreation."
+  }
 }

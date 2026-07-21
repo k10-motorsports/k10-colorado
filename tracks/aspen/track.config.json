@@ -1,7 +1,7 @@
 {
   "name": "Aspen Motorsports Park",
   "slug": "aspen_motorsports_park",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 9.0,
@@ -63,5 +63,12 @@
     "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
     "dips": [],
     "cambers": []
+  },
+  "route": {
+    "start_at": [
+      39.2669,
+      -106.88
+    ],
+    "_orientation_doc": "Research 2026-07-20: Aspen Motorsports Park runs CLOCKWISE (official map corners 1-7 CW; crash-report geometry corroborates). Our ring is already CW. S/F on the short N-S chute south of the final hairpin (~39.2669,-106.8800), cars heading SSW; checkered timing stand beside it. Pit lane: east side of the S/F chute (driver's left), ~100-150 m, splits at hairpin exit, rejoins after S/F."
   }
 }

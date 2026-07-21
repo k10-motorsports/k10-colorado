@@ -1,7 +1,7 @@
 {
   "name": "High Plains Raceway",
   "slug": "high_plains",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
@@ -58,5 +58,12 @@
     "type": "kml",
     "kml": "",
     "_note": "centerline.geojson provided directly (traced)"
+  },
+  "route": {
+    "start_at": [
+      39.67456,
+      -104.77141
+    ],
+    "_orientation_doc": "Research 2026-07-20: High Plains Raceway runs CLOCKWISE (PCA turn guide + LapMeta, 15 turns, 2.56 mi). Our ring is already CW. REAL S/F: mid front straight (~370 m, WSW->ENE ~102 deg, between the Prairie Corkscrew exit and T1) at real-world ~39.7350,-103.8946 \u2014 but THIS trace lives in a displaced frame (~77 km off; re-source pending per CLAUDE.md), so start_at is the matching straight IN THE TRACE'S OWN FRAME: the 207 m straight bearing 115.7 deg, midpoint 39.67456,-104.77141. Re-derive when re-sourced. Pit lane: real hot pits on the NORTH side of the front straight (driver's left), ~690 m incl. entry/exit; entry before S/F at the corkscrew exit, exit wraps outside T1-T2 and merges at T2 exit."
   }
 }
