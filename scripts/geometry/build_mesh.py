@@ -445,8 +445,14 @@ def build(project_dir: str | Path) -> dict:
     road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
-    runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
-    runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
+    # runoff.enabled=false skips it — a flat apron "at graded terrain height" makes sense beside a
+    # flat circuit, but on a pitched mountainside it's a tarmac shelf with a step at the road band.
+    if cfg_raw.get("runoff", {}).get("enabled", True):
+        runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
+        runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
+    else:
+        runoff = {"vertices": [], "uvs": [], "tris": []}
+        print("  runoff aprons: disabled (runoff.enabled=false)")
     # Interior connector roads (2nd-layout streets / the PPIR infield roval) — flat drivable 1ROAD. Built
     # HERE (before the clamp) so the terrain is graded below them too — else the grass pokes up through the
     # connector (the roval poked +0.5 m before this moved up from after grass_terrain).
@@ -485,14 +491,21 @@ def build(project_dir: str | Path) -> dict:
     # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
     # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
     kerb_cfg = cfg_raw.get("kerb", {})
-    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk, ground=grass_surf,
-                              kerb_h=float(kerb_cfg.get("height_m", 0.05)),
-                              kerb_w=float(kerb_cfg.get("width_m", 1.0)),
-                              top_frac=float(kerb_cfg.get("top_frac", 0.55)),
-                              edge_ramp=float(kerb_cfg.get("edge_ramp", 0.0)))
-    if kerb_cfg:
-        print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
-              f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
+    if kerb_cfg.get("enabled", True):
+        kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk, ground=grass_surf,
+                                  kerb_h=float(kerb_cfg.get("height_m", 0.05)),
+                                  kerb_w=float(kerb_cfg.get("width_m", 1.0)),
+                                  top_frac=float(kerb_cfg.get("top_frac", 0.55)),
+                                  edge_ramp=float(kerb_cfg.get("edge_ramp", 0.0)))
+        if kerb_cfg:
+            print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
+                  f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
+    else:
+        # kerb.enabled=false: rural/mountain roads have NO kerbs — the curvature test calls the whole
+        # mountain "corners" and lined 25 km of a 6.5 m lane with vertical-lipped rumble strips
+        # (the Lariat's "undriveable slop"). The flush shoulder is the only edge treatment.
+        kerb = {"vertices": [], "uvs": [], "tris": []}
+        print("  kerbs: disabled (kerb.enabled=false)")
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     # ANTI-POKE pass 2: the draped shoulder/kerb outer edges land on the bilinear grass_surf, but the grass
     # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small

@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -115,5 +115,13 @@
       ]
     }
   },
-  "true_north_rotation_deg": 180.0
+  "true_north_rotation_deg": 180.0,
+  "kerb": {
+    "enabled": false,
+    "_doc": "Real mountain road: NO kerbs. The curvature test classed the whole mountain as corners and lined 25 km of a 6.5 m lane with 5 cm vertical-lip rumble strips on both edges - Kevin's 'undriveable slop'. Flush paved shoulder only."
+  },
+  "runoff": {
+    "enabled": false,
+    "_doc": "No flat tarmac runoff aprons on a pitched mountainside - run-off here is dirt, trees, and guardrail (warning barriers stay)."
+  }
 }

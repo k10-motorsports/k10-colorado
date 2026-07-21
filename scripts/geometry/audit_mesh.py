@@ -304,7 +304,9 @@ def audit(project_dir: str | Path) -> dict:
             tx, tz = bx - ax, bz - az
             L = math.hypot(tx, tz) or 1.0
             nxv, nzv = -tz / L, tx / L
-            for off in (-rw[i] / 2, -rw[i] / 4, 0.0, rw[i] / 4, rw[i] / 2):
+            # ±(w/2 + 2) covers the flush shoulder band as well as the lane — on switchback stacks
+            # the upper leg's embankment can bury the lower leg's shoulder while the lane reads clean
+            for off in (-rw[i] / 2 - 2.0, -rw[i] / 2, -rw[i] / 4, 0.0, rw[i] / 4, rw[i] / 2, rw[i] / 2 + 2.0):
                 px, pz = bx + nxv * off, bz + nzv * off
                 deck = nearest_y(road_hash4, px, pz, 3.5, 4.0)
                 if not deck:
