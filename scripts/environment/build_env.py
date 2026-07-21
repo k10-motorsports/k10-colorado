@@ -623,7 +623,15 @@ def build(project_dir: str | Path) -> dict:
     t_cap = int(scn.get("tree_cap", 700))
     t_ac = int(scn.get("tree_atlas_cols", 2))     # TREES atlas grid (mined Colorado trees4 = 2x2)
     t_ar = int(scn.get("tree_atlas_rows", 2))
-    for f in env:
+    # tree_style "conifer": pines/spruces — narrower billboards (a pine is a spire, not a lollipop)
+    # drawn from the CONIFER atlas material instead of the broadleaf TREES one.
+    conifer = scn.get("tree_style") == "conifer"
+    tree_mat = "CONIFER" if conifer else "TREES"
+    t_wfrac = 0.55 if conifer else 0.85
+    # fill_terrain replaces the poly scatter wholesale: on a forest track the OSM wood polys cover the
+    # same hillsides the corridor fill plants, and iterating polys first eats the whole tree cap in
+    # OSM-poly order (forested climb, bald return leg). One scatter, one budget, even lap coverage.
+    for f in (() if scn.get("fill_terrain") else env):
         if f["cls"] not in ("green", "wetland") or f["kind"] != "poly" or len(f["coords"]) < 3:
             continue
         poly = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in f["coords"]]
@@ -639,10 +647,54 @@ def build(project_dir: str | Path) -> dict:
                     h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
                     tree_meshes.append(_billboard_cell(x, ground_y(x, z), z,
                                                        _tg.randint(0, t_ac - 1), _tg.randint(0, t_ar - 1),
-                                                       t_ac, t_ar, h, h * 0.85, yaw=_tg.random() * math.pi))
+                                                       t_ac, t_ar, h, h * t_wfrac, yaw=_tg.random() * math.pi))
+                    ntrees += 1
+
+    # --- fill_terrain: a continuous forest band swept along the WHOLE lap (mountain tracks — the
+    #     non-road world is forest, not the OSM 'green'-polygon islands an urban grid has). Offsets are
+    #     biased toward the road (r^1.6) so the tree wall reads dense from the driver's seat while the
+    #     cap goes further; heights run taller than the urban scatter (mature ponderosa, 8..16 m). ---
+    if scn.get("fill_terrain"):
+        _tf = random.Random(91)
+        f_range = float(scn.get("fill_range_m", 150.0))
+        f_per = int(scn.get("fill_per_station", 3))
+        # Thin by probability so the budget spreads over the WHOLE lap — a hard cap hit mid-loop
+        # forests the climb and leaves the return leg bald (trees place in lap-station order).
+        lap_len = sum(math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+                      for i in range(1, len(loop)))
+        cand = max(1, int(lap_len / max(t_step, 1e-6)) * 2 * f_per)
+        p_keep = min(1.0, max(0, t_cap - ntrees) / cand)
+        acc = 0.0
+        for i in range(1, len(loop)):
+            acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+            if acc < t_step:
+                continue
+            acc = 0.0
+            x, y, z = loop[i]
+            a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
+            tx, tz = b[0] - a[0], b[2] - a[2]
+            tl = math.hypot(tx, tz) or 1e-6
+            nx, nz = -tz / tl, tx / tl
+            for side in (1.0, -1.0):
+                for _ in range(f_per):
+                    if ntrees >= t_cap or _tf.random() > p_keep:
+                        continue
+                    off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) + 2.0 \
+                        + _tf.random() ** 1.6 * f_range
+                    rx, rz = x + nx * off * side, z + nz * off * side
+                    if on_road(rx, rz):
+                        continue
+                    h = 8.0 + _tf.random() * 8.0
+                    tree_meshes.append(_billboard_cell(rx, ground_y(rx, rz), rz,
+                                                       _tf.randint(0, t_ac - 1), _tf.randint(0, t_ar - 1),
+                                                       t_ac, t_ar, h, h * t_wfrac, yaw=_tf.random() * math.pi))
                     ntrees += 1
 
     # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
+    # Gated to waterways NEAR the lap: the zones bbox carries every stream in the region (Clear Creek
+    # runs the whole north edge at Lookout), and forest planted along all of them is budget spent
+    # where no driver ever looks.
+    near_track = _corridor_rejecter(loop, widths, connector_lines, margin=250.0, cell=260.0)
     import random as _trnd
     _tr = _trnd.Random(77)
     nriver = 0
@@ -665,10 +717,12 @@ def build(project_dir: str | Path) -> dict:
                     rx, rz = bx + nx * off * side, bz + nz * off * side
                     if on_road(rx, rz):                     # the road crosses the creek (bridge) — keep off it
                         continue
+                    if not near_track(rx, rz):              # stream nowhere near the lap — skip
+                        continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
                     tree_meshes.append(_billboard_cell(rx, ground_y(rx, rz), rz,
                                                        _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
-                                                       t_ac, t_ar, h, h * 0.85, yaw=_tr.random() * math.pi))
+                                                       t_ac, t_ar, h, h * t_wfrac, yaw=_tr.random() * math.pi))
                     nriver += 1
     trees = _merge(tree_meshes)
 
@@ -713,7 +767,7 @@ def build(project_dir: str | Path) -> dict:
     lightpost_meshes, lighthead_meshes, nlights = [], [], 0
     l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
-    for i in range(1, len(loop)):
+    for i in range(1, len(loop)) if l_spacing > 0 else ():   # <=0 disables (mountain roads are unlit)
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
         if acc >= l_spacing:
             acc = 0.0
@@ -742,7 +796,7 @@ def build(project_dir: str | Path) -> dict:
     pole_meshes, wire_meshes, npole = [], [], 0
     pl_spacing = float(scn.get("powerline_spacing_m", 52.0))
     prev_tips, acc = None, 0.0
-    for i in range(1, len(loop)):
+    for i in range(1, len(loop)) if pl_spacing > 0 else ():  # <=0 disables (no wires over the forest)
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
         if acc < pl_spacing:
             continue
@@ -902,7 +956,7 @@ def build(project_dir: str | Path) -> dict:
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
-               ("TREES", "grass", trees), ("BUSHES", "grass", bushes),
+               (tree_mat, "grass", trees), ("BUSHES", "grass", bushes),
                ("LIGHTPOST", "road", lightposts), ("LIGHTS", "road", lightheads),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),

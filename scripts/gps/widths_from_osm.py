@@ -27,6 +27,16 @@ CLASS = {
     "motorway": (4, 4.0), "trunk": (4, 4.0), "primary": (4, 6.0), "secondary": (3, 5.0),
     "tertiary": (2, 4.0), "unclassified": (2, 3.0), "residential": (2, 4.0), "service": (1, 1.5),
 }
+# The default table is tuned for URBAN US arterials (parking/turn lanes, 4-lane trunk floors). On a
+# rural/mountain route those assumptions systematically over-widen: the Lariat Trail is a 6.5 m
+# mountain road, not an 11 m boulevard, and 2-lane US-40 is not an 18 m runway. Select with
+# route.width_profile = "mountain" in track.config.json — narrower lanes (3.0 m), no urban
+# allowances, class minimums at the rural reality (2 lanes).
+MOUNTAIN_LANE_W = 3.0
+MOUNTAIN_CLASS = {
+    "motorway": (2, 3.0), "trunk": (2, 3.0), "primary": (2, 4.0), "secondary": (2, 3.0),
+    "tertiary": (2, 0.5), "unclassified": (2, 0.3), "residential": (2, 0.0), "service": (1, 1.0),
+}
 MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
 DRIVABLE = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|service"
@@ -61,23 +71,26 @@ def fetch_ways(bbox: tuple[float, float, float, float]) -> list[dict]:
     return ways
 
 
-def pavement_width(way: dict | None) -> float:
+def pavement_width(way: dict | None, profile: str = "urban") -> float:
     """Curb-to-curb metres for an OSM way (or a sane default if unmatched)."""
+    table, lane_w = (MOUNTAIN_CLASS, MOUNTAIN_LANE_W) if profile == "mountain" else (CLASS, LANE_W)
     if way is None:
-        return 9.0
+        return 6.5 if profile == "mountain" else 9.0
     if way.get("width"):
         try:
             return float(str(way["width"]).split()[0])
         except ValueError:
             pass
     hw = way.get("highway", "residential")
-    cmin, extra = CLASS.get(hw, (2, 3.0))
+    if hw.endswith("_link"):                   # interchange ramp: one lane + shoulder, either profile
+        return round(lane_w + 2.0, 1)
+    cmin, extra = table.get(hw, (2, 3.0))
     lanes = cmin
     try:
         lanes = max(int(way["lanes"]), cmin)   # OSM often UNDER-tags US arterials → floor at the class typical
     except (TypeError, ValueError):
         pass
-    return round(lanes * LANE_W + extra, 1)
+    return round(lanes * lane_w + extra, 1)
 
 
 def _match_per_vertex(cl: list[Vertex], ways: list[dict], *, max_snap_m: float = 26.0, min_run: int = 5):
@@ -129,7 +142,8 @@ def _smooth(vals: list[float], win: int = 9) -> list[float]:
 MAJOR = {"motorway", "trunk", "primary", "secondary", "tertiary"}   # "real" intersections cross these
 
 
-def detect_junctions(ways: list[dict], cl: list[Vertex], *, near_m: float = 16.0) -> list[dict]:
+def detect_junctions(ways: list[dict], cl: list[Vertex], *, near_m: float = 16.0,
+                     profile: str = "urban") -> list[dict]:
     """Real intersections the circuit drives THROUGH: OSM nodes where ≥2 ARTERIAL (tertiary+) ways meet,
     within ``near_m`` of the racing line — the corners where the circuit turns street-to-street and the
     major crossings, NOT every minor residential T-junction. Returns ``[{idx, size}]`` — the centerline
@@ -158,7 +172,7 @@ def detect_junctions(ways: list[dict], cl: list[Vertex], *, near_m: float = 16.0
             if d2 < best_d2:
                 best_d2, best_k = d2, k
         if best_k >= 0:
-            out.append({"idx": best_k, "size": max(pavement_width(ways[wi]) for wi in major) + 3.0})
+            out.append({"idx": best_k, "size": max(pavement_width(ways[wi], profile) for wi in major) + 3.0})
     return out
 
 
@@ -202,13 +216,14 @@ def build(project_dir: str | Path) -> dict:
     lons = [c[0] for c in cl]; lats = [c[1] for c in cl]
     pad = 0.0015
     bbox = (min(lats) - pad, min(lons) - pad, max(lats) + pad, max(lons) + pad)
+    profile = json.loads((project / "track.config.json").read_text()).get("route", {}).get("width_profile", "urban")
     ways = fetch_ways(bbox)
     idx = _match_per_vertex(cl, ways)
-    widths_cl = [pavement_width(ways[wi] if wi >= 0 else None) for wi in idx]
+    widths_cl = [pavement_width(ways[wi] if wi >= 0 else None, profile) for wi in idx]
     widths_cl = _smooth(widths_cl)
     # FLARE the ribbon at the real intersections the circuit drives through (widen the road itself, one
     # continuous surface — NOT an overlapping pad, which poked above the sloped road and read as bumps).
-    junctions = detect_junctions(ways, cl)
+    junctions = detect_junctions(ways, cl, profile=profile)
     widths_cl = flare_widths(widths_cl, cl, junctions)
     # resample widths to the LOCAL vertex count if they differ (nearest by fractional index)
     if len(widths_cl) != n_local:
@@ -235,7 +250,7 @@ def build(project_dir: str | Path) -> dict:
     for wi, cnt in sorted(seg.items(), key=lambda x: -x[1]):
         wv = ways[wi] if wi >= 0 else None
         named.append((cnt, (wv or {}).get("name") or ("off-network" if wi < 0 else f"way{wi}"),
-                      (wv or {}).get("highway", "-"), (wv or {}).get("lanes", "-"), pavement_width(wv)))
+                      (wv or {}).get("highway", "-"), (wv or {}).get("lanes", "-"), pavement_width(wv, profile)))
     import statistics
     stats = {"vertices": n_local, "min_w": min(widths), "median_w": statistics.median(widths),
              "max_w": max(widths), "matched_pct": round(100 * sum(1 for w in idx if w >= 0) / len(idx), 1),

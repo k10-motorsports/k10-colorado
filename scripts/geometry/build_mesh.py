@@ -91,6 +91,48 @@ def write_obj(path: Path, mtl_name: str, groups: list[tuple[str, str, dict]]) ->
     return nv, nf
 
 
+def split_mesh_under_cap(name: str, mat: str, mesh: dict, cap: int = 30000) -> list[tuple[str, str, dict]]:
+    """Split a mesh into uniquely-named chunks under AC's 65,535 per-mesh vertex cap.
+
+    The kn5 exporter auto-splits an oversized mesh into pieces with the SAME name — and AC keys
+    PHYSICAL meshes by name, so all but one piece silently drop out of collision (the 25 km Lariat
+    kerb strip shipped as '1KERB_corners' x3 with two-thirds of it fall-through). Pre-splitting here
+    with _a/_b/... suffixes keeps every piece collidable. Chunks by triangle order (swept strips are
+    station-ordered, so chunks stay contiguous); vertices are re-indexed per chunk.
+
+    cap 30,000, NOT ~65k: the kn5 export re-splits shared vertices at UV/normal seams, so the
+    exported count can run up to ~2x the OBJ count — a 62k chunk shipped as '..._a' x2 again."""
+    if len(mesh["vertices"]) <= cap:
+        return [(name, mat, mesh)]
+    uvs = mesh.get("uvs")
+    out: list[tuple[str, str, dict]] = []
+    tri_i = 0
+    while tri_i < len(mesh["tris"]):
+        remap: dict[int, int] = {}
+        cv: list = []
+        cuv: list = []
+        ct: list = []
+        while tri_i < len(mesh["tris"]) and len(cv) <= cap - 3:
+            new_tri = []
+            for v in mesh["tris"][tri_i]:
+                k = remap.get(v)
+                if k is None:
+                    k = remap[v] = len(cv)
+                    cv.append(mesh["vertices"][v])
+                    if uvs:
+                        cuv.append(uvs[v])
+                new_tri.append(k)
+            ct.append(tuple(new_tri))
+            tri_i += 1
+        chunk = {"vertices": cv, "tris": ct}
+        if uvs:
+            chunk["uvs"] = cuv
+        out.append((f"{name}_{chr(ord('a') + len(out))}", mat, chunk))
+    print(f"  [split] {name}: {len(mesh['vertices'])} verts > {cap} cap -> "
+          f"{len(out)} uniquely-named meshes ({[g[0] for g in out]})")
+    return out
+
+
 def write_mtl(path: Path) -> None:
     path.write_text(
         "newmtl road\nKd 0.20 0.20 0.23\nKa 0.05 0.05 0.05\n\n"
@@ -139,15 +181,36 @@ BRIDGE_MIN_H_M = 3.5       # road must ride this far above bare earth to earn a 
 BRIDGE_MIN_SPAN_M = 12.0   # ...over at least this long a run (a real span, not a one-vertex bump)
 
 
-def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]]):
+def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]],
+                     raw_ground: tuple[list[float], list[float]] | None = None):
     """Return ``bridge_of(station_m) -> bool``: True where the road rides a sustained height above the
     bare earth (a real gap to span — Sand Creek's creek). Those stations get NO embankment fill (the
-    valley stays open under the deck) and a bridge structure instead. Returns a no-op if there are none."""
+    valley stays open under the deck) and a bridge structure instead. Returns a no-op if there are none.
+
+    ``raw_ground`` = (stations_m, ground_y_local): the ALONG-ROAD raw 3DEP profile. Prefer it over the
+    heightfield — on a steep sidehill a coarse (40 m) bilinear grid cell reads metres below the true
+    ground under the road, which minted phantom 400-600 m viaducts down Paradise Rd / Mt Vernon Canyon.
+    The 3 m raw profile keeps the one real span (19th St over US-6) and kills the fakes."""
     st = [0.0]
     for i in range(1, len(centerline_m)):
         st.append(st[-1] + math.hypot(centerline_m[i][0] - centerline_m[i - 1][0],
                                       centerline_m[i][2] - centerline_m[i - 1][2]))
-    high = [(cy - _grid_bilinear(natural_grid, cx, cz)) > BRIDGE_MIN_H_M for cx, cy, cz in centerline_m]
+    if raw_ground is not None:
+        gst, gy = raw_ground
+
+        def _ground_at(s: float) -> float:
+            import bisect
+            k = bisect.bisect_left(gst, s)
+            if k <= 0:
+                return gy[0]
+            if k >= len(gst):
+                return gy[-1]
+            t = (s - gst[k - 1]) / max(1e-9, gst[k] - gst[k - 1])
+            return gy[k - 1] + t * (gy[k] - gy[k - 1])
+
+        high = [(centerline_m[i][1] - _ground_at(st[i])) > BRIDGE_MIN_H_M for i in range(len(centerline_m))]
+    else:
+        high = [(cy - _grid_bilinear(natural_grid, cx, cz)) > BRIDGE_MIN_H_M for cx, cy, cz in centerline_m]
     spans: list[tuple[float, float]] = []
     i = 0
     n = len(centerline_m)
@@ -299,17 +362,22 @@ def build(project_dir: str | Path) -> dict:
         raw_pts = evidence.level_bridge_decks(raw_pts, _bridges)
         lifted = max((raw_pts[i][1] - before[i] for i in range(len(raw_pts))), default=0.0)
         print(f"  elevation: leveled {len(_bridges)} bridge deck(s) over the creek (max lift {lifted:.1f} m)")
-    raw_pts = evidence.cap_grade(raw_pts, max_grade=0.06)
-    widths = local["widths_m"]
-    origin = (local["origin"]["lon"], local["origin"]["lat"])
-    elev0 = local["origin"]["elev_m"]
-
     # MIRROR_X: AC's kn5 convert renders the track reflected east<->west (a real right-hander reads as a
     # left, north preserved). Cancel it by mirroring the SOURCE X (east) here — so the road, the dummies
     # (placed below) and the facing (build_kn5) are all COMPUTED in the mirrored frame, never reflected
     # as matrices (that's what broke the spawn before). orient_up re-faces the drivable surfaces.
     cfg_raw = json.loads((project_dir / "track.config.json").read_text())
     mirror_x = bool(cfg_raw.get("mirror_x", False))
+
+    # Grade cap: a launch-spike safety net, NOT a terrain flattener. 6% suits flat street circuits;
+    # a mountain track must set road_profile.max_grade_pct above its real steepest pitch (Lookout:
+    # Paradise Rd runs -12..-14.5%) or the capped road drifts metres above the real earth downhill —
+    # which is exactly what minted the phantom 400-600 m viaducts before this was configurable.
+    _max_grade = float(cfg_raw.get("road_profile", {}).get("max_grade_pct", 6.0)) / 100.0
+    raw_pts = evidence.cap_grade(raw_pts, max_grade=_max_grade)
+    widths = local["widths_m"]
+    origin = (local["origin"]["lon"], local["origin"]["lat"])
+    elev0 = local["origin"]["elev_m"]
 
     # ROAD PROFILE: corner-round, mirror, and bake the hand-authored dip (the Sand Creek corkscrew) into
     # the centerline Y. Shared with build_env so the scenery anchors to the SAME road. dip_of/bank_at are
@@ -352,7 +420,19 @@ def build(project_dir: str | Path) -> dict:
     # valley/hillside survives and running off is a slope, not a tabletop cliff. Racetracks (tiny fills)
     # get automatic smooth gradations from the same path. bridge_of suppresses fill under a deck (below).
     natural_grid = [[v for v in row] for row in grid_xyz]     # bare earth BEFORE grading (for bridge detect)
-    bridge_of = _bridge_detector(centerline, natural_grid)
+    # Along-road raw 3DEP ground for bridge detection (see _bridge_detector) — station-keyed off the
+    # SAME points the road profile came from, in local y (elev - origin elev).
+    raw_ground = None
+    elev_path = data / "centerline.elevation.json"
+    if elev_path.exists():
+        _ej = json.loads(elev_path.read_text(encoding="utf-8"))
+        if len(_ej.get("z_raw_m", [])) == len(raw_pts):
+            _gst = [0.0]
+            for i in range(1, len(raw_pts)):
+                _gst.append(_gst[-1] + math.hypot(raw_pts[i][0] - raw_pts[i - 1][0],
+                                                  raw_pts[i][2] - raw_pts[i - 1][2]))
+            raw_ground = (_gst, [z - elev0 for z in _ej["z_raw_m"]])
+    bridge_of = _bridge_detector(centerline, natural_grid, raw_ground=raw_ground)
     ribbon.grade_embankment(grid_xyz, centerline, widths, bank_at=bnk,
                             extra_roads=[(p, w) for _n, p, w in connectors],
                             clearance=GRASS_CLEARANCE_M, bridge_of=bridge_of)
@@ -440,9 +520,12 @@ def build(project_dir: str | Path) -> dict:
     # Big white pavement lettering matching the Commerce City reference ("E 45TH AVE" painted on the road).
     roadtext = {"vertices": [], "uvs": [], "tris": []}
     labels_path = data / "street_labels.json"
-    if labels_path.exists():
+    rt_cfg = cfg_raw.get("road_text", {})
+    # road_text.enabled=false skips decals entirely (mountain roads have no painted street names,
+    # and placement is junction-keyed — on a rural loop the labels land in the wrong places). Also
+    # keeps this track's build from overwriting the shared roadtext_atlas.png.
+    if labels_path.exists() and rt_cfg.get("enabled", True):
         sl = json.loads(labels_path.read_text(encoding="utf-8"))
-        rt_cfg = cfg_raw.get("road_text", {})
         mode = rt_cfg.get("mode", "along")        # "along" = lengthwise down the lane (drive over it)
         cap_m = float(rt_cfg.get("cap_m", 4.8))   # letter height across the road (≈half a 9 m lane)
         min_leg = rt_cfg.get("min_leg_m", 200.0)
@@ -474,9 +557,12 @@ def build(project_dir: str | Path) -> dict:
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
-    groups = [("1GRASS", "grass", grass), (edge_group, edge_mat, shoulder),
-              ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
-              ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
+    groups = [("1GRASS", "grass", grass),
+              *split_mesh_under_cap(edge_group, edge_mat, shoulder),
+              ("1RUNOFF_corners", "road", runoff),
+              *split_mesh_under_cap("1ROAD_main", "road", road),
+              *split_mesh_under_cap("1KERB_corners", "kerb", kerb),
+              ("MARKINGS", "kerb", marks),
               ("MARKINGS_crosswalk", "kerb", xwalk)]
     if roadtext["tris"]:
         groups.append(("ROADTEXT", "kerb", roadtext))

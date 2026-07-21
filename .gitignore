@@ -23,4 +23,5 @@ tracks/*/build/
 # regenerable debug renders / audit (build outputs, not source)
 tracks/*/data/*.svg
 tracks/*/data/audit.json
-tracks/*/data/ground.local.json   # conformed-ground heightfield, rebuilt by the mesh stage (like track.obj)
+# conformed-ground heightfield, rebuilt by the mesh stage (like track.obj)
+tracks/*/data/ground.local.json

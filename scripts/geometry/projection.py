@@ -90,8 +90,12 @@ def build(project_dir: str | Path) -> dict:
     }
     (data / "centerline.local.json").write_text(json.dumps(out), encoding="utf-8")
 
-    # Persist the resolved true north back to the source of truth (default projection => 0).
-    cfg.write_back(true_north_rotation_deg=0.0)
+    # Persist the resolved true north back to the source of truth — but only when it has never been
+    # resolved. The lighting stage (csp_config.resolve_true_north) owns the real value (180 on
+    # mirror_x tracks); a re-run of projection must not clobber it back to 0 or the exported sun
+    # sets in the east.
+    if cfg.raw.get("true_north_rotation_deg") is None:
+        cfg.write_back(true_north_rotation_deg=0.0)
 
     write_plan_svg(local, ys, data / "plan_view.svg")
     return {k: out[k] for k in ("extent_x_m", "extent_z_m", "height_m", "point_count")} | {

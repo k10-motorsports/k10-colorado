@@ -42,12 +42,16 @@ def _tree_cell(W, H, seed, conifer=False):
     canopy_seed = _noise(H, W, 7, seed + 1)
     base_green = np.array([0.16 + 0.12 * rng.random(), 0.34 + 0.14 * rng.random(), 0.12 + 0.08 * rng.random()])
     if conifer:
-        # stacked triangles
-        tiers = 5
+        # stacked triangles — silhouette varied per seed (tiers/width/hue) so a pure-conifer atlas
+        # reads as a mixed pine/spruce forest, not six copies of one tree
+        base_green = np.array([0.08 + 0.07 * rng.random(), 0.20 + 0.12 * rng.random(), 0.08 + 0.06 * rng.random()])
+        tiers = int(4 + rng.integers(0, 4))                  # 4..7 whorls
+        span = 0.48 + 0.10 * rng.random()                    # how far down the skirt reaches
+        hw0 = W * (0.34 + 0.12 * rng.random())               # skirt half-width
         for i in range(tiers):
-            ty = H * (0.10 + 0.52 * i / tiers)
-            tb = H * (0.10 + 0.52 * (i + 1.4) / tiers)
-            hw = W * (0.42 - 0.30 * i / tiers)
+            ty = H * (0.08 + span * i / tiers)
+            tb = H * (0.08 + span * (i + 1.4) / tiers)
+            hw = hw0 * (1.0 - 0.72 * i / tiers)
             for y in range(int(ty), int(tb)):
                 fr = (y - ty) / max(1, (tb - ty))
                 ww = hw * fr
@@ -110,6 +114,13 @@ def build(out_dir: str | Path = "assets/textures"):
         cell = _tree_cell(cw, ch, seed=100 + i, conifer=conifer)
         atlas.paste(cell, ((i % tc) * cw, (i // tc) * ch), cell)
     atlas.save(out / "trees_atlas.png")
+    # conifer atlas: same 3x2 grid, ALL conifers (mountain tracks — scenery.tree_style "conifer").
+    # Seeds vary tiers/width/hue per cell so the forest reads as mixed pine/spruce, not clones.
+    catlas = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    for i in range(tc * tr):
+        cell = _tree_cell(cw, ch, seed=300 + i, conifer=True)
+        catlas.paste(cell, ((i % tc) * cw, (i // tc) * ch), cell)
+    catlas.save(out / "conifer_atlas.png")
     # bushes: 2 x 2
     bc, br = 2, 2
     cw, ch = S // bc, S // br
