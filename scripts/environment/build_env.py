@@ -695,7 +695,7 @@ def build(project_dir: str | Path) -> dict:
                     if ntrees >= t_cap or _tf.random() > p_keep:
                         continue
                     off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) + 2.0 \
-                        + _tf.random() ** 1.6 * f_range
+                        + _tf.random() ** float(scn.get("fill_bias", 1.6)) * f_range
                     rx, rz = x + nx * off * side, z + nz * off * side
                     if on_road(rx, rz):
                         continue

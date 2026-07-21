@@ -67,10 +67,26 @@ def load_overrides(project_dir: str | Path) -> dict[str, dict]:
     scripts/capture/textures.py); paths resolve relative to the project. Empty when no capture exists →
     the build uses the stock textures unchanged. Pure (no bpy) so it's unit-testable."""
     project_dir = Path(project_dir)
+    out: dict[str, dict] = {}
+    # 1) config-level overrides (track.config.json texture_overrides) — swap a stock texture per
+    #    track without renaming meshes (the Lariat's terrain renders alpine grass instead of dry
+    #    dirt while staying 1GRASS for physics/audits/GrassFX). Paths resolve vs the REPO root
+    #    (assets/textures/...) or the project dir.
+    cfgp = project_dir / "track.config.json"
+    if cfgp.exists():
+        repo = Path(__file__).resolve().parents[2]
+        for mat, o in (json.loads(cfgp.read_text()).get("texture_overrides", {}) or {}).items():
+            ent = {}
+            for k in ("diffuse", "normal"):
+                if o.get(k):
+                    p = repo / o[k] if (repo / o[k]).exists() else project_dir / o[k]
+                    ent[k] = str(p)
+            if ent:
+                out[str(mat).upper()] = ent
+    # 2) capture-level overrides (real-world textures) win over config
     cap = project_dir / "source" / "realworld_capture.json"
     if not cap.exists():
-        return {}
-    out: dict[str, dict] = {}
+        return out
     for o in json.loads(cap.read_text()).get("texture_overrides", []):
         ent = {}
         if o.get("diffuse"):

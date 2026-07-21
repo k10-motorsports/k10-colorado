@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -55,14 +55,14 @@
     "cambers": []
   },
   "scenery": {
-    "_doc": "Foothills pine forest, not urban grid: dense conifer fill over ALL non-road terrain (tree_style 'conifer'), no buildings/powerlines. Streetlights ON per Kevin: yellow, at 96 m (double the 48 m urban default \u2014 sparse mountain-road pools). corridor_margin_m keeps trunks clear of the pavement and its shoulders.",
+    "_doc": "Foothills pine forest: TurboSquid-derived pine sprite atlas (rendered imagery only, mesh never ships), packed HARD near the road (step 7 m, 4/station/side, bias 2.4 -> most trees within ~25 m of the verge), grass ground + GrassFX. Streetlights ON per Kevin: yellow, 96 m, dim wide pools.",
     "tree_style": "conifer",
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
-    "tree_step_m": 11.0,
-    "tree_cap": 9000,
-    "fill_range_m": 150.0,
-    "fill_per_station": 3,
+    "tree_step_m": 7.0,
+    "tree_cap": 16000,
+    "fill_range_m": 140.0,
+    "fill_per_station": 4,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -75,7 +75,8 @@
     "powerline_spacing_m": 0,
     "signs": {
       "enabled": false
-    }
+    },
+    "fill_bias": 2.4
   },
   "origin": "centroid",
   "surfaces": {
@@ -123,5 +124,12 @@
   "runoff": {
     "enabled": false,
     "_doc": "No flat tarmac runoff aprons on a pitched mountainside - run-off here is dirt, trees, and guardrail (warning barriers stay)."
+  },
+  "texture_overrides": {
+    "1GRASS": {
+      "diffuse": "assets/textures/grass_diffuse.jpg",
+      "normal": "assets/textures/grass_normal.jpg",
+      "_doc": "Alpine grass instead of dry dirt (Kevin) - mesh stays 1GRASS so physics, audits and GrassFX are untouched; GrassFX (lighting.grassfx) grows 3D blades on it."
+    }
   }
 }
