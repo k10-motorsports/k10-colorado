@@ -24,7 +24,8 @@ from scripts.config import load_config
 from scripts.geometry import kerbs, ribbon
 from scripts.geometry import profile as profile_mod
 from scripts.geometry.build_mesh import (
-    ROAD_LIFT_M, finished_centerline, project_grid, read_npy, render_iso, write_mtl, write_obj)
+    ROAD_LIFT_M, finished_centerline, project_grid, read_npy, render_iso, split_mesh_under_cap,
+    write_mtl, write_obj)
 from scripts.geometry.projection import _meters_per_degree
 from scripts.environment import buildings, signs
 
@@ -966,7 +967,12 @@ def build(project_dir: str | Path) -> dict:
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
-               (tree_mat, "grass", trees), ("BUSHES", "grass", bushes),
+               # trees split under the kn5 16-bit vertex cap: a 25 km forest is one ~78k-position
+               # mesh, the exporter only WARNS past 65,535, and AC silently drops the over-limit
+               # mesh in-game — the Lariat shipped with an invisible forest ("where did the trees
+               # go"). Prefix-matched names (CONIFER_a...) keep materials/GrassFX behavior.
+               *split_mesh_under_cap(tree_mat, "grass", trees),
+               *split_mesh_under_cap("BUSHES", "grass", bushes),
                ("LIGHTPOST", "road", lightposts), ("LIGHTS", "road", lightheads),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
