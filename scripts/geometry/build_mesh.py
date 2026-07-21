@@ -398,14 +398,17 @@ def build(project_dir: str | Path) -> dict:
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
-    # Pick the FINEST upsample (<=3) that keeps 1GRASS under AC's 65,535 per-mesh vertex cap. Over the
-    # cap, the exporter auto-splits the grass into TWO meshes with the SAME name; AC keys physical meshes
-    # by name, so one half is dropped from collision and the car falls THROUGH the grass. Small loops
-    # (Sand Creek) still get x3; big loops (Lake Murray) drop to x2/x1 so the grass is a single,
-    # uniquely-named, fully-collidable mesh.
+    # Upsample as fine as a ~260k-vertex terrain budget allows (never below x3): the terrain
+    # triangles must be fine enough to follow the road cut. The old rule dropped big loops to x1 to
+    # keep 1GRASS one mesh under AC's 65,535 vertex cap — at 40 m cells the triangles BETWEEN the
+    # clamped vertices bridged straight across the road cut (ground knifing +4 m through the
+    # Lariat's switchbacks; the vertex-level audit can't see it) — and even x3 (~13 m) left the
+    # audit's H check firing on PPIR's banking and Sand Creek's creek banks. The vertex cap is now
+    # handled like the kerbs: split_mesh_under_cap ships the grass as uniquely-named collidable
+    # chunks (every consumer prefix-matches 1GRASS*), so resolution is bounded by budget, not name.
     _ny0, _nx0 = len(grid), len(grid[0])
-    up = 3
-    while up > 1 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 62000:
+    up = 8
+    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 260_000:
         up -= 1
     grid, meta = ribbon.upsample_grid(grid, meta, up)
     print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")
@@ -557,7 +560,7 @@ def build(project_dir: str | Path) -> dict:
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
-    groups = [("1GRASS", "grass", grass),
+    groups = [*split_mesh_under_cap("1GRASS", "grass", grass),
               *split_mesh_under_cap(edge_group, edge_mat, shoulder),
               ("1RUNOFF_corners", "road", runoff),
               *split_mesh_under_cap("1ROAD_main", "road", road),

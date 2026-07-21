@@ -628,6 +628,16 @@ def build(project_dir: str | Path) -> dict:
     conifer = scn.get("tree_style") == "conifer"
     tree_mat = "CONIFER" if conifer else "TREES"
     t_wfrac = 0.55 if conifer else 0.85
+
+    def seat_y(x, z, half):
+        """Ground height to seat a billboard's flat base: the MIN ground over its footprint, so on a
+        steep cut/fill face the downhill corner still touches earth instead of hanging in the air.
+        Eight directions, not four — the crossed quads are YAWED per instance, so their corners land
+        between axis-aligned samples (4-point sampling still left tall conifers hanging on 2:1 cuts).
+        A small extra sink hides the residual between-sample slope."""
+        ring = [(0.0, 0.0)] + [(half * math.cos(k * math.pi / 4), half * math.sin(k * math.pi / 4))
+                               for k in range(8)]
+        return min(ground_y(x + ox, z + oz) for ox, oz in ring) - 0.25
     # fill_terrain replaces the poly scatter wholesale: on a forest track the OSM wood polys cover the
     # same hillsides the corridor fill plants, and iterating polys first eats the whole tree cap in
     # OSM-poly order (forested climb, bald return leg). One scatter, one budget, even lap coverage.
@@ -645,7 +655,7 @@ def build(project_dir: str | Path) -> dict:
                 z = min(zs) + iz * step
                 if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
                     h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
-                    tree_meshes.append(_billboard_cell(x, ground_y(x, z), z,
+                    tree_meshes.append(_billboard_cell(x, seat_y(x, z, h * t_wfrac / 2), z,
                                                        _tg.randint(0, t_ac - 1), _tg.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tg.random() * math.pi))
                     ntrees += 1
@@ -685,7 +695,7 @@ def build(project_dir: str | Path) -> dict:
                     if on_road(rx, rz):
                         continue
                     h = 8.0 + _tf.random() * 8.0
-                    tree_meshes.append(_billboard_cell(rx, ground_y(rx, rz), rz,
+                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
                                                        _tf.randint(0, t_ac - 1), _tf.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tf.random() * math.pi))
                     ntrees += 1
@@ -720,7 +730,7 @@ def build(project_dir: str | Path) -> dict:
                     if not near_track(rx, rz):              # stream nowhere near the lap — skip
                         continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
-                    tree_meshes.append(_billboard_cell(rx, ground_y(rx, rz), rz,
+                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
                                                        _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tr.random() * math.pi))
                     nriver += 1
@@ -754,7 +764,7 @@ def build(project_dir: str | Path) -> dict:
             bx, bz = x + nx * off * side, z + nz * off * side
             if on_road(bx, bz):                     # reject where the throw lands on a fold-back/parallel road
                 continue
-            by = ground_y(bx, bz) - 0.4             # seat into the ground (correct height even when mirrored)
+            by = seat_y(bx, bz, 0.8) - 0.4          # footprint-min ground - sink (no corner hangs on a cut face)
             sz = b_sz_min + _r.random() * b_sz_span
             bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
                                                NC, NR, sz * 0.78, sz, yaw=_r.random() * math.pi))

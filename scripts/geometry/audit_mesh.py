@@ -255,15 +255,64 @@ def audit(project_dir: str | Path) -> dict:
             b = GY[j1][i0] * (1 - ti) + GY[j1][i1] * ti
             return a * (1 - tj) + b * tj
 
-        env = _obj_groups(envp, ("BUSHES", "TREES", "PALMS"))
+        env = _obj_groups(envp, ("BUSHES", "TREES", "PALMS", "CONIFER"))
         col = defaultdict(lambda: 1e9)
-        for pre in ("BUSHES", "TREES", "PALMS"):
+        for pre in ("BUSHES", "TREES", "PALMS", "CONIFER"):
             for x, y, z in env[pre]:
                 k = (round(x / 0.8), round(z / 0.8)); col[k] = min(col[k], y)
         prop_float = 0
         for (kx, kz), by in col.items():
             if by > ground_surf(kx * 0.8, kz * 0.8) + 0.7:
                 prop_float += 1
+
+    # H. ground-above-deck at the SURFACE level — bilinear-sample the conformed ground (the actual
+    #    rendered/collided triangle surface) across lateral cross-sections of the road envelope and
+    #    flag anywhere it rises above the deck. B (vertex-vs-vertex) provably misses this: on a coarse
+    #    grid the clamped VERTICES are legal while the triangles BETWEEN them bridge the road cut —
+    #    the Lariat shipped with the mountainside knifing +4.4 m through its switchbacks and B read 0.
+    ground_cut = None
+    worst_cut = 0.0
+    clp = data / "centerline.local.json"
+    if glp.exists() and clp.exists():
+        gl2 = json.loads(glp.read_text())
+        hx0, hz0, hdx, hdz, hnx, hny, HY = gl2["x0"], gl2["z0"], gl2["dx"], gl2["dz"], gl2["nx"], gl2["ny"], gl2["y"]
+
+        def _hsurf(x, z):
+            fi = (x - hx0) / hdx if hdx else 0.0
+            fj = (z - hz0) / hdz if hdz else 0.0
+            if not (0 <= fi < hnx - 1 and 0 <= fj < hny - 1):
+                return None
+            i0, j0 = int(fi), int(fj)
+            ti, tj = fi - i0, fj - j0
+            a = HY[j0][i0] * (1 - ti) + HY[j0][i0 + 1] * ti
+            b = HY[j0 + 1][i0] * (1 - ti) + HY[j0 + 1][i0 + 1] * ti
+            return a * (1 - tj) + b * tj
+
+        # Deck height comes from the BUILT 1ROAD verts (nearest within 4 m), NOT the centerline y —
+        # a centerline reconstruction reads banking (PPIR's 10-degree corners put the edge ~1 m above
+        # the centerline), bridge-deck lifts and cambers as phantom ground cuts. First principle:
+        # measure the built geometry.
+        cl = json.loads(clp.read_text())
+        cfg_raw = json.loads((Path(project_dir) / "track.config.json").read_text())
+        sxm = -1.0 if cfg_raw.get("mirror_x", False) else 1.0
+        rpts = [(sxm * p[0], p[1], p[2]) for p in cl["points_xyz_m"]]
+        rw = cl["widths_m"]
+        ground_cut = 0
+        for i in range(10, len(rpts), 10):
+            ax, ay, az = rpts[i - 1]
+            bx, by, bz = rpts[i]
+            tx, tz = bx - ax, bz - az
+            L = math.hypot(tx, tz) or 1.0
+            nxv, nzv = -tz / L, tx / L
+            for off in (-rw[i] / 2, -rw[i] / 4, 0.0, rw[i] / 4, rw[i] / 2):
+                px, pz = bx + nxv * off, bz + nzv * off
+                deck = nearest_y(road_hash4, px, pz, 3.5, 4.0)
+                if not deck:
+                    continue
+                gy2 = _hsurf(px, pz)
+                if gy2 is not None and gy2 - max(deck) > 0.10:
+                    ground_cut += 1
+                    worst_cut = max(worst_cut, gy2 - max(deck))
 
     report = {
         "slug": slug, "road_verts": len(g["1ROAD"]), "grass_verts": len(g["1GRASS"]), "piers": len(piers),
@@ -275,6 +324,8 @@ def audit(project_dir: str | Path) -> dict:
         "E_wall_floating": wall_float,
         "F_curb_not_flush": curb_bad,
         "G_prop_floating": prop_float,
+        "H_ground_above_deck": ground_cut,
+        "worst_ground_cut_m": round(worst_cut, 2),
         "worst_poke_m": round(max((h[2] for h in poke_hits), default=0.0), 2),
         "worst_float_m": round(worst_float, 2),
         "C_by_kind": {"ramp": sum(1 for c in cross if c[3] == "ramp"),
@@ -292,7 +343,10 @@ def audit(project_dir: str | Path) -> dict:
     print(f"  E. walls floating over ground  : {wall_float}  (worst +{report['worst_float_m']} m)")
     print(f"  F. curbs not flush             : {curb_bad}  (of {len(g['KERB'])} curb verts)")
     print(f"  G. plants floating over ground : {'(env not built)' if prop_float is None else prop_float}")
-    total = len(support_hits) + len(poke_hits) + len(cross) + wall_on_road + wall_float + curb_bad + (prop_float or 0)
+    print(f"  H. ground cutting into road    : {'(no ground grid)' if ground_cut is None else ground_cut}"
+          f"  (worst +{report['worst_ground_cut_m']} m)")
+    total = (len(support_hits) + len(poke_hits) + len(cross) + wall_on_road + wall_float + curb_bad
+             + (prop_float or 0) + (ground_cut or 0))
     print(f"  => {'CLEAN' if total == 0 else str(total) + ' issues'}")
     return report
 
@@ -300,5 +354,5 @@ def audit(project_dir: str | Path) -> dict:
 if __name__ == "__main__":
     r = audit(sys.argv[1] if len(sys.argv) > 1 else "projects/san-diego-freeway-loop")
     hard = (r["A_supports_in_road"] + r["B_terrain_poke"] + r["D_wall_on_road"] + r["E_wall_floating"]
-            + r["F_curb_not_flush"] + (r["G_prop_floating"] or 0))
+            + r["F_curb_not_flush"] + (r["G_prop_floating"] or 0) + (r["H_ground_above_deck"] or 0))
     sys.exit(1 if hard else 0)   # C (junction crossings) reported but non-gating (walls are gapped there)

@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -46,7 +46,7 @@
   "width_overrides": [],
   "road_text": {
     "enabled": false,
-    "_doc": "No painted street-name decals — they land in the wrong places on this rural loop (Kevin), and mountain roads don't have them anyway."
+    "_doc": "No painted street-name decals \u2014 they land in the wrong places on this rural loop (Kevin), and mountain roads don't have them anyway."
   },
   "road_profile": {
     "_doc": "Elevation is 100% real USGS 3DEP along the route \u2014 ~1,300 ft from the 19th St gates to the Buffalo Bill summit (~7,375 ft). No hand-authored dips/cambers; the mountain provides them. max_grade_pct 16 clears the real steepest pitch (Paradise Rd -14.5%) \u2014 the default 6% cap flattened the descent and floated the road metres above the canyon floor.",
