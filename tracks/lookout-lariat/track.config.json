@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -136,5 +136,9 @@
     "style": "lane",
     "center_yellow": true,
     "_doc": "Lake Murray look: solid double-yellow centre + white edge lines (ribbon.lane_markings port); road asphalt tiles at 4 m to match."
+  },
+  "props": {
+    "concrete_barriers": true,
+    "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
   }
 }

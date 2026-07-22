@@ -411,7 +411,8 @@ def _box_column(cx, cz, y0, y1, w):
     return verts, tris
 
 
-def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.7, pad=4):
+def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.7, pad=4,
+                  declared_spans=()):
     """Dress every actual creek crossing as a bridge: concrete parapets along both road edges, an
     underside slab, and piers down into the water. Sand Creek is crossed twice — at E 56th and at Quebec.
     The drivable road surface stays (it's the track mesh); this is the structure around/under it. Returns
@@ -450,6 +451,17 @@ def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.
     # (plains irrigation ditches along US-6/Colfax) and built 50+ stations of parapet alongside the
     # lane — Kevin's "crazy wall stuff down in the plains".
     flag = [near_w(loop[i][0], loop[i][2]) < 2.5 for i in range(n)]
+    # ALSO dress every DECLARED capture.bridges span: a real crossing over a channel that is not in
+    # OSM waterways (Sand Creek's 46th-leg river dip) gets its deck leveled by evidence but showed
+    # no parapets/railing — flag its stations directly by lap arc.
+    if declared_spans:
+        arc = [0.0]
+        for i in range(1, n):
+            arc.append(arc[-1] + math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2]))
+        for center, ln in declared_spans:
+            for i in range(n):
+                if abs(arc[i] - center) <= ln / 2:
+                    flag[i] = True
     spans, i = [], 0
     while i < n:
         if flag[i]:
@@ -607,7 +619,8 @@ def build(project_dir: str | Path) -> dict:
     hwy_corridor = _corridor_rejecter(loop, widths, connector_lines, margin=16.0)
     hwy_deck, hwy_struct = _build_highways(env, project, ground_y, on_track=hwy_corridor)
     # creek bridges (E 56th + Quebec over Sand Creek): parapets + underside + piers at the crossings.
-    bridge = _creek_bridge(loop, widths, env, project, ground_y)
+    bridge = _creek_bridge(loop, widths, env, project, ground_y,
+                           declared_spans=evidence.bridge_spans(project_dir))
 
     # --- scenery knobs (per-track, config-driven; defaults reproduce the original Sand Creek look) and
     #     the road-corridor index that keeps every scatter OFF the asphalt for ANY track ---

@@ -633,6 +633,16 @@ def build(project_dir: str | Path) -> dict:
         print(f"  shoulder: sank {_sunk} verts under the deck (watertight — no drape holes)")
 
     barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
+    barrier_group = ("BARRIER_warning", "kerb")
+    if cfg_raw.get("props", {}).get("concrete_barriers"):
+        # Kevin's 4 m concrete barrier modules replace the procedural swept jersey — real geometry,
+        # instanced along the SAME warning-barrier runs, shipped physical as 1WALL_* (collidable).
+        from scripts.environment import props as props_mod
+        _mod = props_mod.load_module(Path(cfg_raw["props"].get(
+            "barrier_obj", str(Path(__file__).resolve().parents[2] / "assets" / "models" / "concrete_barrier_4m.obj"))))
+        barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod)
+        barrier_group = ("1WALL_barrier", "kerb")
+        print(f"  concrete barriers: {len(barrier['vertices'])} verts instanced over {len(barrier_spots)} runs")
     drop_over_road(barrier, "warning barriers", lo=-1.0, hi=3.5)
     barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
     if barrier_spots:
@@ -703,7 +713,7 @@ def build(project_dir: str | Path) -> dict:
     if roadtext["tris"]:
         groups.append(("ROADTEXT", "kerb", roadtext))
     if barrier["tris"]:
-        groups.append(("BARRIER_warning", "kerb", barrier))   # guardrails at sharp/blind corners
+        groups.extend(split_mesh_under_cap(barrier_group[0], barrier_group[1], barrier))  # guardrails at sharp/blind corners
     if yline["tris"]:
         groups.append(("YLINE", "kerb", yline))
     for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh

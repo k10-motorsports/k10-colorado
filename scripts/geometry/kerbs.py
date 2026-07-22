@@ -311,7 +311,8 @@ def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp
             a0 = max(1, i - lead_v); b0 = min(n - 1, j + 5)
             h = crest_height if crest_near else height
             sweep(list(range(a0, b0)), side, h)
-            placements.append({"start_idx": a0, "apex_idx": (i + j) // 2, "turn_deg": round(total, 0),
+            placements.append({"start_idx": a0, "end_idx": b0, "side": side, "height": h,
+                               "apex_idx": (i + j) // 2, "turn_deg": round(total, 0),
                                "crest": crest_near, "station_m": round(st[(i + j) // 2], 0)})
         i = j
     return {"vertices": verts, "uvs": uvs, "tris": tris}, placements

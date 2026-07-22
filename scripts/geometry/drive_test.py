@@ -151,6 +151,11 @@ def run(project_dir: str | Path) -> dict:
         pts = [(mirror * p[0], p[1], p[2]) for p in lc["points_xyz_m"]]
     widths = lc["widths_m"]
 
+    # declared bridge spans: parapet/railing furniture INSIDE these is expected (a bridge with no
+    # railing is the defect, not the railing) — obstruction hits on *bridge-named meshes there are skipped
+    spans = [(b.get("center_m", 0) - b.get("len_m", 0) / 2 - 20, b.get("center_m", 0) + b.get("len_m", 0) / 2 + 20)
+             for b in (cfg.get("capture", {}) or {}).get("bridges", [])]
+
     surface = TriField()      # everything the car can roll on
     obstacle = TriField()     # everything else that could stand in the corridor
     for objfile in ("track.obj", "environment.obj"):
@@ -234,9 +239,12 @@ def run(project_dir: str | Path) -> dict:
                     problems["daylight_gaps"].append((round(s, 1), round(off, 2)))
         # corridor obstruction scan at this station (uses centre deck height)
         if deck_c is not None:
+            on_bridge = any(a <= s <= b for a, b in spans)
             for name in obstacle.rising_in(x, z, lane_half + 0.3,
                                            lambda vx, vz: surface.top_at(vx, vz, y_ref)[0],
                                            OBST_CLEAR_M, OBST_HEIGHT_M):
+                if on_bridge and "BRIDGE" in name.upper():
+                    continue                       # declared-span railing = required furniture
                 problems["obstructions"].append((round(s, 1), name))
                 obst_names[name] += 1
         s += STEP_M
