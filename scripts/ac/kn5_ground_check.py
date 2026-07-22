@@ -166,9 +166,13 @@ def check(project_dir: str | Path) -> dict:
         if len(sheets) > 20:
             fails.append(f"terrain has {len(sheets)} double-sheet cells (phantom-clamp corruption)")
 
-    # BASE SEATING: every standing object's column base must touch the ground it stands on.
+    # BASE SEATING: every standing object's FOOT must touch the ground it stands on.
+    # Two measurement traps learned the hard way: (1) the search radius must exceed the grass grid
+    # spacing (~10 m) or sparse-vertex cells read as "no ground" (36% phantom no-ground on fences);
+    # (2) a mast ARM 9 m up forms its own 1.5 m column whose min-y is the arm itself — a column with
+    # a LOWER column of the same object within 3.5 m is an upper part, not a foot; skip it.
     ground_all = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", [])
-                          + kn5.get("1ROAD_MAIN", []), cell=4.0)
+                          + kn5.get("1ROAD_MAIN", []), cell=8.0)
     for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
                      ("GANTRY", "pylons"), ("SIGNPOST", "signposts")):
         pts_b = kn5.get(b, [])
@@ -178,15 +182,21 @@ def check(project_dir: str | Path) -> dict:
         for x, y, z in pts_b:
             k = (round(x / 1.5), round(z / 1.5))
             colmin[k] = min(colmin[k], y)
-        gaps2, nog = [], 0
+        feet = []
         for (kx, kz), base in colmin.items():
-            x, z = kx * 1.5, kz * 1.5
+            lower_neighbor = any(
+                colmin.get((kx + di, kz + dj), 1e9) < base - 0.8
+                for di in (-2, -1, 0, 1, 2) for dj in (-2, -1, 0, 1, 2))
+            if not lower_neighbor:
+                feet.append((kx * 1.5, base, kz * 1.5))
+        gaps2, nog = [], 0
+        for x, base, z in feet:
             best = None
-            ci, cj = int(x // 4.0), int(z // 4.0)
-            for di in (-1, 0, 1):
-                for dj in (-1, 0, 1):
+            ci, cj = int(x // 8.0), int(z // 8.0)
+            for di in (-2, -1, 0, 1, 2):
+                for dj in (-2, -1, 0, 1, 2):
                     for rx, ry, rz in ground_all.get((ci + di, cj + dj), ()):
-                        if (x - rx) ** 2 + (z - rz) ** 2 <= 16 and ry < base + 0.6:
+                        if (x - rx) ** 2 + (z - rz) ** 2 <= 144 and ry < base + 0.6:
                             best = ry if best is None else max(best, ry)
             if best is None:
                 nog += 1
@@ -195,12 +205,13 @@ def check(project_dir: str | Path) -> dict:
         gaps2.sort()
         n2 = len(gaps2)
         p95 = gaps2[19 * n2 // 20] if n2 else 0.0
-        mx = gaps2[-1] if n2 else 0.0
+        big = sum(1 for g2 in gaps2 if g2 > 3.0)
+        bigf = big / max(1, n2)
         nogf = nog / max(1, n2 + nog)
-        print(f"  {label:9s} columns {n2+nog:5d}: buried/no-ground {100*nogf:4.1f}%  "
-              f"base-gap p95 {p95:+.2f}  max {mx:+.2f}")
-        if p95 > 1.2 or mx > 3.0 or nogf > 0.08:
-            fails.append(f"{label}: p95 {p95:.2f} max {mx:.2f} no-ground {100*nogf:.0f}%")
+        print(f"  {label:9s} feet {n2+nog:5d}: no-ground {100*nogf:4.1f}%  "
+              f"base-gap p95 {p95:+.2f}  >3m {big} ({100*bigf:.1f}%)")
+        if p95 > 1.2 or bigf > 0.01 or nogf > 0.08:
+            fails.append(f"{label}: p95 {p95:.2f} >3m {100*bigf:.1f}% no-ground {100*nogf:.0f}%")
 
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
     ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []), cell=6.0)

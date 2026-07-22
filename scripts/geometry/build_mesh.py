@@ -710,6 +710,10 @@ def build(project_dir: str | Path) -> dict:
                                               surface_y=_edge_surface_y)
         barrier_group = ("1WALL_barrier", "kerb")
         print(f"  concrete barriers: {len(barrier['vertices'])} verts instanced over {len(barrier_spots)} runs")
+    # Lift BEFORE the road-guard + proximity trim so they compare in the same frame the audit (and
+    # AC) sees. Trimming pre-lift left 137 hairpin-apex verts 1.19->1.09 m under the other leg's
+    # edge: outside the trim window, inside the audit's.
+    barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
     drop_over_road(barrier, "warning barriers", lo=-1.0, hi=3.5)
     # proximity trim: drop barrier tris pressing within 1.0 m of the MAIN carriageway at deck
     # height (flare tapers pull a handful of modules tighter than any real installation)
@@ -723,7 +727,9 @@ def build(project_dir: str | Path) -> dict:
             for _di4 in (-1, 0, 1):
                 for _dj4 in (-1, 0, 1):
                     for _rx4, _ry4, _rz4 in _mh.get((int(vx4 // 4.0) + _di4, int(vz4 // 4.0) + _dj4), ()):
-                        if (vx4 - _rx4) ** 2 + (vz4 - _rz4) ** 2 < 1.0 and abs(vy4 - _ry4) < 1.2:
+                        # margins slightly WIDER than audit D (1.0 m / 1.2 m): the trim must
+                        # strictly superset the gate or boundary-epsilon verts survive to fail it
+                        if (vx4 - _rx4) ** 2 + (vz4 - _rz4) ** 2 < 1.21 and abs(vy4 - _ry4) < 1.3:
                             return True
             return False
         _bv4 = barrier["vertices"]
@@ -731,7 +737,14 @@ def build(project_dir: str | Path) -> dict:
         if len(_keep4) != len(barrier["tris"]):
             print(f"  warning barriers: proximity-trimmed {len(barrier['tris']) - len(_keep4)} tris (<1 m to carriageway)")
             barrier["tris"] = _keep4
-    barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
+            # PRUNE the orphan verts the trimmed panels leave behind — they still count as wall
+            # verts to the audit (D) and to AC's collision, exactly like the old procedural wall
+            # pass (which prunes for the same reason). Remap tris onto the compacted vert list.
+            _used4 = sorted({_v5 for _t5 in _keep4 for _v5 in _t5})
+            _remap4 = {_o: _n for _n, _o in enumerate(_used4)}
+            barrier["vertices"] = [_bv4[_o] for _o in _used4]
+            barrier["uvs"] = [barrier["uvs"][_o] for _o in _used4]
+            barrier["tris"] = [tuple(_remap4[_v5] for _v5 in _t5) for _t5 in _keep4]
     if barrier_spots:
         print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "
               f"(crest-blind: {sum(1 for s in barrier_spots if s['crest'])})")  # just above road

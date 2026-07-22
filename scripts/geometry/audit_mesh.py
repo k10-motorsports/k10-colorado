@@ -263,13 +263,17 @@ def audit(project_dir: str | Path) -> dict:
             return a * (1 - tj) + b * tj
 
         env = _obj_groups(envp, ("BUSHES", "TREES", "PALMS", "CONIFER"))
-        col = defaultdict(lambda: 1e9)
+        # keep the ACTUAL coords of each column's lowest vert — sampling the ground at the quantized
+        # 0.8 m cell corner instead was a metre of phantom height on steep slopes (false G floats)
+        col: dict = {}
         for pre in ("BUSHES", "TREES", "PALMS", "CONIFER"):
             for x, y, z in env[pre]:
-                k = (round(x / 0.8), round(z / 0.8)); col[k] = min(col[k], y)
+                k = (round(x / 0.8), round(z / 0.8))
+                if k not in col or y < col[k][0]:
+                    col[k] = (y, x, z)
         prop_float = 0
-        for (kx, kz), by in col.items():
-            if by > ground_surf(kx * 0.8, kz * 0.8) + 0.7:
+        for by, bx, bz in col.values():
+            if by > ground_surf(bx, bz) + 0.7:
                 prop_float += 1
 
     # H. ground-above-deck at the SURFACE level — bilinear-sample the conformed ground (the actual
