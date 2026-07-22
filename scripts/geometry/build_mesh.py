@@ -32,7 +32,7 @@ ROAD_LIFT_M = 0.0001  # 0.1 mm (Kevin: zero visible ledge anywhere)
 # 0.03 is NOT a visible gap: it lives strictly UNDER the asphalt slab (anti z-fight/anti poke — at
 # literal 0.0 the drive test found grass coplanar IN THE LANE). The visible seam is the shoulder
 # draping onto the grass, which meets at exactly 0.
-GRASS_CLEARANCE_M = 0.03
+GRASS_CLEARANCE_M = 0.01  # Kevin: "0.01" — the world sits ONE CENTIMETER under the deck
 
 
 def read_npy(path: Path) -> list[list[float]]:
@@ -453,8 +453,13 @@ def build(project_dir: str | Path) -> dict:
     # handled like the kerbs: split_mesh_under_cap ships the grass as uniquely-named collidable
     # chunks (every consumer prefix-matches 1GRASS*), so resolution is bounded by budget, not name.
     _ny0, _nx0 = len(grid), len(grid[0])
+    # 1.1M budget (was 420k): 10 m cells cannot carry an 8 m mountain bench — adjacent nodes on a
+    # 40% side-slope differ by 4 m and the triangles between them cut metres under the road: the
+    # deck+apron raft perched a metre above the ACTUAL terrain along the whole Lariat while flat
+    # Sand Creek sat perfectly (same code, different terrain frequency). ~6 m cells halve the
+    # bench error at the source; split_mesh_under_cap absorbs the vertex count.
     up = 8
-    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 420_000:
+    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 1_100_000:
         up -= 1
     grid, meta = ribbon.upsample_grid(grid, meta, up)
     print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")

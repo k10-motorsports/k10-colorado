@@ -28,8 +28,10 @@ BUCKETS = ("1ROAD_MAIN", "1ROAD_SHOULDER", "1GRASS", "1WALL", "1KERB", "1RUNOFF"
            "HIGHWAY", "HWYSTRUCT", "EUROSIGN", "SIGNPOST", "GANTRY")
 TOL = 0.08          # m — importer/exporter float chatter is ~mm; anything real is metres
 SAMPLE = 23         # every Nth vert per bucket
-ROAD_GAP_M = 1.8    # floating-deck guard threshold
-ROAD_GAP_FRAC = 0.03  # allowed fraction of road samples over threshold (bridges)
+ROAD_GAP_M = 0.05   # deck vs the MOUNTAIN (grass only). Construction pins the world at
+#                     deck-0.01 (Kevin: "0.01"); 0.05 is the barycentric sampling ceiling that
+#                     still means PHYSICAL CONTACT. Anything past it fails the build.
+ROAD_GAP_FRAC = 0.0   # green means zero (declared bridges/approaches exempt by geometry)
 
 
 
@@ -481,7 +483,10 @@ def check(project_dir: str | Path) -> dict:
         print(f"  flush edges (info): {nE} samples  deck-vs-verge median {medE:+.2f}  p95 {p95E:+.2f}")
 
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
-    ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []) + kn5.get("1KERB", []), cell=6.0)
+    # GRASS ONLY (Kevin: "green needs to be fucking zero"): measuring the deck against its own
+    # shoulder/kerb/underside apron is the road resting on itself — self-referential support let a
+    # metre of air over the ACTUAL mountain read as median 0.00. The reference is the terrain.
+    ground_h = hash_pts(kn5.get("1GRASS", []), cell=6.0)
     road = kn5.get("1ROAD_MAIN", [])
     over = tot = 0
     for x, y, z in road[::7]:

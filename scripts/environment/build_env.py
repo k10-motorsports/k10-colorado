@@ -659,7 +659,12 @@ def build(project_dir: str | Path) -> dict:
         A small extra sink hides the residual between-sample slope."""
         ring = [(0.0, 0.0)] + [(half * math.cos(k * math.pi / 4), half * math.sin(k * math.pi / 4))
                                for k in range(8)]
-        return min(ground_y(x + ox, z + oz) for ox, oz in ring) - 0.25
+        vals = [ground_y(x + ox, z + oz) for ox, oz in ring]
+        # cliff-lip guard: >0.95 m of relief inside the footprint means half the base hangs in air
+        # however we seat it (the finer terrain grid exposes these) — signal the caller to skip.
+        if max(vals) - min(vals) > 0.95:
+            return None
+        return min(vals) - 0.25
     # fill_terrain replaces the poly scatter wholesale: on a forest track the OSM wood polys cover the
     # same hillsides the corridor fill plants, and iterating polys first eats the whole tree cap in
     # OSM-poly order (forested climb, bald return leg). One scatter, one budget, even lap coverage.
@@ -677,7 +682,10 @@ def build(project_dir: str | Path) -> dict:
                 z = min(zs) + iz * step
                 if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
                     h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
-                    tree_meshes.append(_billboard_cell(x, seat_y(x, z, h * t_wfrac / 2), z,
+                    _sy9 = seat_y(x, z, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(x, _sy9, z,
                                                        _tg.randint(0, t_ac - 1), _tg.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tg.random() * math.pi))
                     ntrees += 1
@@ -717,7 +725,10 @@ def build(project_dir: str | Path) -> dict:
                     if on_road(rx, rz):
                         continue
                     h = 8.0 + _tf.random() * 8.0
-                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
+                    _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(rx, _sy9, rz,
                                                        _tf.randint(0, t_ac - 1), _tf.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tf.random() * math.pi))
                     ntrees += 1
@@ -761,7 +772,10 @@ def build(project_dir: str | Path) -> dict:
                                         rz + _half_g * math.sin(k * math.pi / 4)) for k in range(8)]
                     if max(_ring_g) - min(_ring_g) > 4.0:
                         continue
-                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
+                    _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(rx, _sy9, rz,
                                                        _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tr.random() * math.pi))
                     nriver += 1
@@ -795,7 +809,10 @@ def build(project_dir: str | Path) -> dict:
             bx, bz = x + nx * off * side, z + nz * off * side
             if on_road(bx, bz):                     # reject where the throw lands on a fold-back/parallel road
                 continue
-            by = seat_y(bx, bz, 0.8) - 0.4          # footprint-min ground - sink (no corner hangs on a cut face)
+            _sy9 = seat_y(bx, bz, 0.8)
+            if _sy9 is None:
+                continue                          # cliff-lip: don't perch a prop half in air
+            by = _sy9 - 0.4          # footprint-min ground - sink (no corner hangs on a cut face)
             sz = b_sz_min + _r.random() * b_sz_span
             bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
                                                NC, NR, sz * 0.78, sz, yaw=_r.random() * math.pi))
@@ -810,6 +827,13 @@ def build(project_dir: str | Path) -> dict:
     _lamp_fixture = (0.0, 9.75, 0.0)   # (module-x, height, module-z) of the emitter
     if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
         _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
+        # MOUNTING HEIGHT (Kevin: "they might be too tall"): the model is a 10.5 m highway mast;
+        # real urban/collector streets run 8-9 m. Vertical scale only — arm reach/thickness stay.
+        _lamp_h = float(scn.get("lamp_height_m", 9.0))
+        _native_h = max(v[1] for v in _lamp_module["vertices"]) or 1.0
+        if abs(_lamp_h - _native_h) > 0.05:
+            _sc9 = _lamp_h / _native_h
+            _lamp_module["vertices"] = [(x, y * _sc9, z) for x, y, z in _lamp_module["vertices"]]
         if (_models / "lamp_lens.obj").exists():
             _lens_module = props_mod.load_module(_models / "lamp_lens.obj")
         # THE STYLE INDICATES the emitter position: centroid of the model's top-metre verts.

@@ -59,11 +59,52 @@ class TrackConfig:
         self.path.write_text(json.dumps(self.raw, indent=2) + "\n", encoding="utf-8")
 
 
+# The three kinds of track we build (Kevin): each archetype is a CONSTRUCTION PHILOSOPHY —
+# defaults applied under the explicit config (explicit keys always win).
+#   real_road      — a public road as it exists (Lookout Lariat): civil-engineering edges (bench
+#                    cut / fill / retaining structure), real signage + street lighting, NO racing
+#                    furniture; fidelity to the place is the product (replication gate applies).
+#   street_circuit — a racing loop made from real streets (Sand Creek): the real_road base plus
+#                    race-day overlay (concrete barriers on the racing line, start/pit furniture).
+#   race_circuit   — a purpose-built facility (IMI, High Plains, PPIR, Second Creek, Aspen):
+#                    racing kerbs, engineered runoff, pit lane/paddock, floodlights.
+ARCHETYPES: dict = {
+    "real_road": {
+        "kerb": {"enabled": False},
+        "runoff": {"enabled": False},
+        "road_markings": {"style": "lane"},
+    },
+    "street_circuit": {
+        "kerb": {"enabled": False},
+        "runoff": {"enabled": False},
+        "road_markings": {"style": "lane"},
+        "props": {"concrete_barriers": True},
+    },
+    "race_circuit": {
+        "kerb": {"enabled": True},
+        "runoff": {"enabled": True},
+        "road_markings": {"style": "track"},
+    },
+}
+
+
+def _deep_defaults(raw: dict, base: dict) -> dict:
+    for k, v in base.items():
+        if k not in raw:
+            raw[k] = v
+        elif isinstance(v, dict) and isinstance(raw.get(k), dict):
+            _deep_defaults(raw[k], v)
+    return raw
+
+
 def load_config(project_dir: str | Path) -> TrackConfig:
     """Load ``<project_dir>/track.config.json`` into a :class:`TrackConfig`."""
     project_dir = Path(project_dir)
     cfg_path = project_dir / "track.config.json" if project_dir.is_dir() else project_dir
     raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    arch = raw.get("archetype")
+    if arch in ARCHETYPES:
+        _deep_defaults(raw, ARCHETYPES[arch])
     return TrackConfig(
         name=raw["name"],
         slug=raw["slug"],

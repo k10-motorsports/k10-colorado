@@ -122,7 +122,8 @@
         }
       ],
       "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
-    }
+    },
+    "lamp_height_m": 9.0
   },
   "origin": "centroid",
   "surfaces": {
@@ -190,5 +191,6 @@
   "props": {
     "concrete_barriers": true,
     "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
-  }
+  },
+  "archetype": "real_road"
 }

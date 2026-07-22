@@ -97,7 +97,8 @@
       "flip_read": false,
       "flip_up": false
     },
-    "lamp_model": true
+    "lamp_model": true,
+    "lamp_height_m": 9.0
   },
   "origin": "centroid",
   "true_north_rotation_deg": 180.0,
@@ -157,5 +158,6 @@
   "props": {
     "concrete_barriers": true,
     "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
-  }
+  },
+  "archetype": "street_circuit"
 }

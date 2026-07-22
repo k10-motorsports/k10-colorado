@@ -280,17 +280,29 @@ def run(project_dir: str | Path) -> dict:
         for sgn in (1.0, -1.0):
             prev_y = None
             off = 0.0
-            while off <= we + 5.5:   # the graded run-off band; past it is wilderness/skirt
+            built_edge = None    # where BUILT pavement actually ends (surface-owner, not nominal width)
+            miss_run = 0
+            while off <= we + 9.0:   # FULLY exit the tarmac, past the hem onto raw world (Kevin)
                 exx, ezz = x0 + nxe * off * sgn, z0 + nze * off * sgn
-                ey, _o = surface.top_at(exx, ezz, y0, 6.0)
-                if ey is not None and prev_y is not None and prev_y - ey > 0.30 and off > we - 0.5:
-                    # >0.30/0.5m = wall-steep (2:1 embankment faces are legal run-off). Gate the
-                    # recovery band on non-flare road; flare mouths tracked separately.
-                    # GATE the constructed verge band (edge -> +2.5 m, always built); beyond it a
-                    # mountain road's terrain is REAL (the Lariat drops 3 m into its own canyon —
-                    # that's Lookout Mountain, guarded by the warning barriers, not a defect).
+                ey, own = surface.top_at(exx, ezz, y0, 8.0)
+                if own is not None and str(own).upper().startswith(("1ROAD", "1KERB")):
+                    built_edge = off
+                in_band = built_edge is not None and off <= built_edge + 4.0 and not in_flare
+                if ey is None:
+                    # NO SURFACE mid-crossing = a hole in the world. The old sweep silently
+                    # skipped None — the literal fall-through case, ignored by the tool built to
+                    # find it ("your tests should show it, but they continually don't").
+                    miss_run += 1
+                    if in_band and miss_run >= 2:      # >= 1 m of nothing inside the band
+                        excursions.append((round(s2, 1), round(off * sgn, 2), 9.99, True))
+                        miss_run = -999                # one report per crossing
+                else:
+                    miss_run = 0
+                if ey is not None and prev_y is not None and prev_y - ey > 0.12 and off > we - 0.5:
+                    # 0.12 m = a tall curb, the most a real car survives at speed. 0.30 gated
+                    # green on car-destroyers ("a track for a video game car").
                     excursions.append((round(s2, 1), round(off * sgn, 2), round(prev_y - ey, 2),
-                                       off <= we + 2.5 and not in_flare))
+                                       in_band))
                 if ey is not None:
                     prev_y = ey
                 off += 0.5

@@ -95,6 +95,20 @@ k10-colorado/
 - **kn5 export** needs **Blender 4.2** + the vendored AC Tools add-on (`scripts/bootstrap_blender.sh`
   pins it). The live-design Blender can be any 4.x; the kn5 pass runs in 4.2.
 
+## The three kinds of track (config `archetype` — a construction philosophy, not a tag)
+
+- **`real_road`** — a public road as it exists (Lookout Lariat). Civil-engineering edges: bench
+  cuts into the ridge, fills with retaining structure where earth can't reach, ditches; real
+  signage and street lighting; NO racing furniture. Fidelity to the place is the product — the
+  replication-vs-lidar gate applies. Humans build supports where necessary; so do we.
+- **`street_circuit`** — a racing loop made from real streets (Sand Creek Raceway). The
+  `real_road` base plus the race-day overlay: concrete barriers along the racing line,
+  start/pit furniture. Long-Beach-GP treatment of real pavement.
+- **`race_circuit`** — a purpose-built facility (IMI, High Plains, PPIR, Second Creek, Aspen).
+  Racing kerbs, engineered runoff, pit lane and paddock, floodlights not streetlights.
+
+Presets live in `scripts/config.py ARCHETYPES` and apply UNDER explicit config keys.
+
 ## Per-track status
 
 | Track | Source | Location fidelity |
