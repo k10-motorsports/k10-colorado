@@ -18,7 +18,8 @@ TEXTURES = {
     "1RUNOFF": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.85, (0.16, 0.15, 0.14, 1), 0.0, False),
     "CALIB":   (None, None, 0.4, (1.0, 0.05, 0.6, 1), 0.9, False),  # bright emissive magenta — temp orientation poles
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
-    "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
+    "MARKINGS": ("line_white.png", None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines — solid-colour TEXTURE, not a bare colour: texture-less kn5 materials render BLACK in-engine (the San Diego lines-end-up-black bug)
+    "YLINE":   ("line_yellow.png", None, 0.45, (0.85, 0.68, 0.10, 1), 0.0, False),  # double-yellow centreline (two-way roads, Lake Murray style)
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
     "1LAWN":   ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated suburban green turf (SoCal neighbourhood tiles)
     "1GRASS":  ("ground_dry_diffuse.jpg", None,              0.95, (0.42, 0.38, 0.29, 1), 0.0, False),  # dry dirt/chaparral (canyon/hill/freeway-cut tiles)

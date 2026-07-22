@@ -22,6 +22,36 @@ def _horiz_tangent(pts: list[Vertex], i: int, closed: bool) -> tuple[float, floa
     return dx / L, dz / L
 
 
+
+def _signed_curvature(pts: list[Vertex], i: int, closed: bool) -> float:
+    """Signed horizontal curvature (1/m) at vertex i; +ve = turning left. Used to stop cross-sections
+    PLEATING: when a lateral offset exceeds the local curve radius, consecutive sections sweep
+    backwards over each other and the ribbon lays multiple road layers at one (x,z) — five stacked
+    decks inside the Lariat's flared hogback curve read as 0.3-0.6 m random steps."""
+    n = len(pts)
+    a = pts[(i - 1) % n] if closed else pts[max(0, i - 1)]
+    b = pts[i]
+    c = pts[(i + 1) % n] if closed else pts[min(n - 1, i + 1)]
+    v1x, v1z = b[0] - a[0], b[2] - a[2]
+    v2x, v2z = c[0] - b[0], c[2] - b[2]
+    l1, l2 = math.hypot(v1x, v1z), math.hypot(v2x, v2z)
+    if l1 < 1e-9 or l2 < 1e-9:
+        return 0.0
+    cross = v1x * v2z - v1z * v2x
+    dot = v1x * v2x + v1z * v2z
+    ang = math.atan2(cross, dot)
+    return ang / ((l1 + l2) / 2.0)
+
+
+def _cap_offset(off: float, k: float, frac: float = 0.9) -> float:
+    """Cap a LEFT-positive lateral offset so it never reaches the inside curve centre."""
+    if k > 1e-6 and off > 0:          # turning left: left side is inside
+        return min(off, frac / k)
+    if k < -1e-6 and off < 0:         # turning right: right side is inside
+        return max(off, -frac / -k)
+    return off
+
+
 def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: float = 4.0,
                 bank_at=None) -> dict:
     """Sweep a drivable ribbon (1ROAD) along the centerline, offsetting ±width/2 per vertex.
@@ -46,11 +76,14 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
         tx, tz = _horiz_tangent(pts, i, closed)
         nx, nz = -tz, tx  # left normal (tangent rotated +90° in X-Z)
         half = widths_m[i] / 2.0
+        k = _signed_curvature(pts, i, closed)
+        half_l = _cap_offset(half, k)
+        half_r = -_cap_offset(-half, k)
         tb = math.tan(bank_at(arc)) if bank_at else 0.0
-        verts.append((x + nx * half, y + half * tb, z + nz * half))  # left  -> 2i  (outside/raised)
-        verts.append((x - nx * half, y - half * tb, z - nz * half))  # right -> 2i+1
-        uvs.append((half / tile_m, arc / tile_m))        # left
-        uvs.append((-half / tile_m, arc / tile_m))       # right
+        verts.append((x + nx * half_l, y + half_l * tb, z + nz * half_l))  # left  -> 2i  (outside/raised)
+        verts.append((x - nx * half_r, y - half_r * tb, z - nz * half_r))  # right -> 2i+1
+        uvs.append((half_l / tile_m, arc / tile_m))        # left
+        uvs.append((-half_r / tile_m, arc / tile_m))       # right
     tris: list[tuple[int, int, int]] = []
     last = m if closed else m - 1
     for i in range(last):
@@ -88,19 +121,22 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             x, y, z = pts[i]
             tx, tz = _horiz_tangent(pts, i, closed)
             nx, nz = -tz * side, tx * side  # outward normal on this side
+            k = _signed_curvature(pts, i, closed)
             half = widths_m[i] / 2.0
+            def _cap(o):                       # offsets are along +n*side; convert to left-signed
+                return abs(_cap_offset(o * side, k))
             tb = math.tan(bank_at(arc)) if bank_at else 0.0
             r = len(verts)
             inner_y = y + lift + side * half * tb
-            verts.append((x + nx * half, inner_y, z + nz * half))                 # inner lip (road edge)
+            verts.append((x + nx * _cap(half), inner_y, z + nz * _cap(half)))                 # inner lip (road edge)
             uvs.append((0.0, arc / tile_m))
             if ground is not None:
                 verge_y = y + side * (half + verge_w) * tb - ground_drop          # gentle band just off the edge
-                verts.append((x + nx * (half + verge_w), verge_y, z + nz * (half + verge_w)))
+                verts.append((x + nx * _cap(half + verge_w), verge_y, z + nz * _cap(half + verge_w)))
                 uvs.append((0.5, arc / tile_m))
-                gy0 = ground(x + nx * (half + verge_w), z + nz * (half + verge_w))
+                gy0 = ground(x + nx * _cap(half + verge_w), z + nz * _cap(half + verge_w))
                 extra = min(max_w, max(verge_w, abs(verge_y - gy0) * ratio))
-                o = half + verge_w + extra
+                o = _cap(half + verge_w + extra)
                 verts.append((x + nx * o, ground(x + nx * o, z + nz * o), z + nz * o))   # ground meet (draped)
                 uvs.append((1.0, arc / tile_m))
             else:
@@ -155,7 +191,10 @@ def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             x, y, z = pts[i]
             tx, tz = _horiz_tangent(pts, i, closed)
             nx, nz = -tz * side, tx * side  # outward normal on this side
+            k = _signed_curvature(pts, i, closed)
             half = widths_m[i] / 2.0
+            def _cap(o):                       # offsets are along +n*side; convert to left-signed
+                return abs(_cap_offset(o * side, k))
             edge_bank = side * half * (math.tan(bank_at(arc)) if bank_at else 0.0)
             base_y = y + edge_bank
             r = len(verts)
@@ -536,3 +575,66 @@ def road_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: 
     add_line(lambda s: s[5] - edge_inset, False)     # left edge, solid
     add_line(lambda s: -(s[5] - edge_inset), False)  # right edge, solid
     return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
+# Ported from k10-san-diego (Lake Murray look): double-yellow centre + white edge lines +
+# dashed dividers, lane count derived per-station from real width.
+def lane_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.12,
+                  edge_inset: float = 0.55, lane_w: float = 3.65, lift: float = 0.0,
+                  dash_on: float = 3.0, dash_gap: float = 9.0, max_lanes_side: int = 6,
+                  center_yellow: bool = True, tile_m: float = 1.0, bank_at=None) -> dict:
+    """Realistic painted lane lines for a real street: a solid double-yellow centreline, dashed white
+    lane dividers (one per lane boundary each side, spaced ``lane_w``), and solid white edge lines inset
+    from the kerb. Lane count is derived per-station from the road width, so wide arterials and
+    intersection turn-pockets get more lanes and narrow blocks fewer — dividers self-clip where they'd
+    fall outside the paved width. Returns ``{"white": mesh, "yellow": mesh}`` (both VISUAL-only — no ``1``
+    prefix); the caller lifts them a hair above the road. Quads are double-sided so a flat decal never
+    backface-culls. ``bank_at`` rolls every line with the cambered road."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    m = n - 1 if closed else n
+    stations = []
+    arc = 0.0
+    for i in range(m):
+        if i > 0:
+            arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        x, y, z = pts[i]
+        tx, tz = _horiz_tangent(pts, i, closed)
+        stations.append((x, y, z, -tz, tx, widths_m[i] / 2.0, arc))  # x,y,z, leftnormal, half, arc
+    white = {"vertices": [], "uvs": [], "tris": []}
+    yellow = {"vertices": [], "uvs": [], "tris": []}
+
+    def strip(mesh, offset_of, dashed, clip=False, w=line_w):
+        V, U, T = mesh["vertices"], mesh["uvs"], mesh["tris"]
+        for i in range(m):
+            j = (i + 1) % m
+            if not closed and j == 0:
+                break
+            s0, s1 = stations[i], stations[j]
+            o0, o1 = offset_of(s0[5]), offset_of(s1[5])
+            if clip and (abs(o0) + w / 2 > s0[5] - edge_inset or abs(o1) + w / 2 > s1[5] - edge_inset):
+                continue                                   # divider would spill past the paved edge → skip
+            if dashed and (s0[6] % (dash_on + dash_gap)) > dash_on:
+                continue
+            b = len(V)
+            for s, o in ((s0, o0), (s1, o1)):
+                x, y, z, nx, nz, half, a = s
+                tb = math.tan(bank_at(a)) if bank_at else 0.0
+                for sign in (-1, 1):
+                    off = o + sign * w / 2
+                    V.append((x + nx * off, y + lift + off * tb, z + nz * off))
+                    U.append(((sign + 1) / 2, a / tile_m))
+            T.append((b, b + 1, b + 3)); T.append((b, b + 3, b + 2))     # forced face-up in build_kn5
+
+    if center_yellow:                                           # two-way street: solid double-yellow centre
+        strip(yellow, lambda half: +0.09, False)                # (a one-way freeway carriageway has none)
+        strip(yellow, lambda half: -0.09, False)
+    strip(white, lambda half: half - edge_inset, False)         # solid white edge lines
+    strip(white, lambda half: -(half - edge_inset), False)
+    for k in range(1, max_lanes_side + 1):                       # dashed white lane dividers, both sides
+        strip(white, (lambda kk: (lambda half: kk * lane_w))(k), True, clip=True)
+        strip(white, (lambda kk: (lambda half: -kk * lane_w))(k), True, clip=True)
+    return {"white": white, "yellow": yellow}
+
+

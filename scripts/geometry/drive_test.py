@@ -49,7 +49,7 @@ CELL = 3.0                   # spatial hash cell (m)
 
 DRIVABLE = ("1ROAD", "1KERB", "1RUNOFF", "1LAWN", "1GRASS")   # car can roll on these
 SOFT = ("1GRASS", "1LAWN")   # ...but these mid-lane on TOP = ground through road
-PAINT = ("MARKINGS", "ROADTEXT")   # flat paint decals ~1.5 cm over deck — never obstructions
+PAINT = ("MARKINGS", "ROADTEXT", "YLINE")   # flat paint decals ~1.5 cm over deck — never obstructions
 
 
 def _load_obj(path: Path):
@@ -173,9 +173,10 @@ def run(project_dir: str | Path) -> dict:
         st.append(st[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
     lap = st[-1]
 
-    problems = {"soft_top_in_lane": [], "steps": [], "severe_steps": [], "kinks": [], "obstructions": []}
-    prev_h = [None] * 6
-    prev_slope = [None] * 6
+    problems = {"soft_top_in_lane": [], "steps": [], "severe_steps": [], "kinks": [], "obstructions": [],
+                "daylight_gaps": []}
+    prev_h = [None] * 10
+    prev_slope = [None] * 10
     obst_names = defaultdict(int)
     s = 0.0
     i = 1
@@ -191,10 +192,14 @@ def run(project_dir: str | Path) -> dict:
         nx, nz = -tz / L, tx / L
         w = widths[i]
         lane_half = max(w / 2 - 0.4, 0.8)
-        lines = (-w / 3, 0.0, w / 3)
+        lines = (-(w / 2 - 0.5), -w / 3, 0.0, w / 3, (w / 2 - 0.5))   # edges included
+        # edge paths (|line| = w/2-0.5) DETECT holes/ground-through at the pavement lip;
+        # smoothness (steps/kinks) gates only on INTERIOR paths — nobody laps on the hinge
+        edge_line = {0, len(lines) - 1}
         paths = [off + d for off in lines for d in (-WHEEL_HALF_TRACK, WHEEL_HALF_TRACK)]
         deck_c, _ = surface.top_at(x, z, y_ref)
         for pi, off in enumerate(paths):
+            is_edge = (pi // 2) in edge_line
             if abs(off) > lane_half:
                 off = math.copysign(lane_half, off)
             px, pz = x + nx * off, z + nz * off
@@ -208,7 +213,7 @@ def run(project_dir: str | Path) -> dict:
             if prev_h[pi] is not None:
                 dh = h - prev_h[pi]
                 slope = dh / STEP_M
-                if prev_slope[pi] is not None:
+                if prev_slope[pi] is not None and not is_edge:
                     kink = abs(slope - prev_slope[pi]) * 100
                     if kink > KINK_PCT:
                         problems["kinks"].append((round(s, 1), round(off, 2), round(kink, 2)))
@@ -219,6 +224,14 @@ def run(project_dir: str | Path) -> dict:
                         problems["steps"].append((round(s, 1), round(off, 2), round(step, 3)))
                 prev_slope[pi] = slope
             prev_h[pi] = h
+        # daylight probe: just past each pavement edge, some surface must exist from deck level
+        # down to 7 m below — a miss means a hole in the embankment skirt (sky under the road)
+        if deck_c is not None:
+            for side in (-1.0, 1.0):
+                off = side * (w / 2 + 0.8)
+                gy_probe, _own = surface.top_at(x + nx * off, z + nz * off, deck_c - 2.5, 5.0)
+                if gy_probe is None:
+                    problems["daylight_gaps"].append((round(s, 1), round(off, 2)))
         # corridor obstruction scan at this station (uses centre deck height)
         if deck_c is not None:
             for name in obstacle.rising_in(x, z, lane_half + 0.3,
@@ -238,6 +251,7 @@ def run(project_dir: str | Path) -> dict:
         "steps_per_km": round(len(problems["steps"]) / per_km, 2),
         "kinks_per_km": round(len(problems["kinks"]) / per_km, 2),
         "obstruction_stations": len(set(s for s, _ in problems["obstructions"])),
+        "daylight_gaps": len(problems["daylight_gaps"]),
         "obstruction_by_mesh": dict(sorted(obst_names.items(), key=lambda kv: -kv[1])[:12]),
         "worst": {
             "soft_top": problems["soft_top_in_lane"][:12],
@@ -255,14 +269,16 @@ def run(project_dir: str | Path) -> dict:
     # mountain profile 3%-pt/m events are genuine road texture, not defects.
     severe_per_km = report["severe_per_km"]
     fail = (report["soft_top_in_lane"] > 0
+            or report["daylight_gaps"] > 0
             or report["obstruction_stations"] > 0
             or severe_per_km > 12.0
             or report["steps_per_km"] > 75.0)
-    print(f"DRIVE TEST {cfg['slug']}  lap {lap/1000:.2f} km  (6 wheel paths @ {STEP_M} m)")
+    print(f"DRIVE TEST {cfg['slug']}  lap {lap/1000:.2f} km  (10 wheel paths @ {STEP_M} m)")
     print(f"  ground on top mid-lane : {report['soft_top_in_lane']}")
     print(f"  severe steps (>{STEP_SEVERE_M*100:.0f} cm)  : {report['severe_steps']}")
     print(f"  bumps >{STEP_BUMP_M*100:.1f} cm /km      : {report['steps_per_km']}")
     print(f"  slope kinks >{KINK_PCT}%% /km   : {report['kinks_per_km']}")
+    print(f"  daylight gaps at edges : {report['daylight_gaps']}")
     print(f"  obstructed stations    : {report['obstruction_stations']}"
           + (f"  {report['obstruction_by_mesh']}" if obst_names else ""))
     for label, rows in (("soft_top", report["worst"]["soft_top"]),

@@ -398,7 +398,7 @@ def build(project_dir: str | Path) -> dict:
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
-    # Upsample as fine as a ~260k-vertex terrain budget allows (never below x3): the terrain
+    # Upsample as fine as a ~420k-vertex terrain budget allows (never below x3): the terrain
     # triangles must be fine enough to follow the road cut. The old rule dropped big loops to x1 to
     # keep 1GRASS one mesh under AC's 65,535 vertex cap — at 40 m cells the triangles BETWEEN the
     # clamped vertices bridged straight across the road cut (ground knifing +4 m through the
@@ -408,7 +408,7 @@ def build(project_dir: str | Path) -> dict:
     # chunks (every consumer prefix-matches 1GRASS*), so resolution is bounded by budget, not name.
     _ny0, _nx0 = len(grid), len(grid[0])
     up = 8
-    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 260_000:
+    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 420_000:
         up -= 1
     grid, meta = ribbon.upsample_grid(grid, meta, up)
     print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")
@@ -442,7 +442,7 @@ def build(project_dir: str | Path) -> dict:
 
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
-    road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
+    road = ribbon.road_ribbon(centerline, widths, tile_m=4.0, bank_at=bnk)  # 4 m = the Lake Murray asphalt scale
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     # runoff.enabled=false skips it — a flat apron "at graded terrain height" makes sense beside a
@@ -517,8 +517,18 @@ def build(project_dir: str | Path) -> dict:
     # grid_xyz exactly (post both anti-poke passes) — the surface the grass mesh triangulates.
     write_ground_local(data / "ground.local.json", grid_xyz)
     grass = ribbon.grass_terrain(grid_xyz)
-    marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
+    mk_cfg = cfg_raw.get("road_markings", {}) or {}
+    if mk_cfg.get("style") == "lane":
+        # Lake Murray-style painted lines: solid double-yellow centre (two-way), solid white edge
+        # lines, dashed dividers where width allows (ported ribbon.lane_markings)
+        _lm = ribbon.lane_markings(centerline, widths, bank_at=bnk,
+                                   center_yellow=bool(mk_cfg.get("center_yellow", True)))
+        marks, yline = _lm["white"], _lm["yellow"]
+    else:
+        marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
+        yline = {"vertices": [], "uvs": [], "tris": []}
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
+    yline["vertices"] = [(x, y + ROAD_LIFT_M + 0.011, z) for x, y, z in yline["vertices"]]
 
     # WARNING BARRIERS — guardrails on the OUTSIDE of sharp turns (and any corner hiding over a crest),
     # so you read "hard corner ahead" + get caught if you run wide. Vertical double-sided walls: NOT
@@ -583,11 +593,44 @@ def build(project_dir: str | Path) -> dict:
             print(f"  {label}: dropped {len(mesh['tris']) - len(keep)} tris over/on the road surface")
             mesh["tris"] = keep
 
-    # shoulder: legit strips start AT the road edge and go OUTWARD — never above the deck interior.
-    # Per-VERT test (centroid mode missed drapes whose centres hang off-road while a corner crosses
-    # the lane); hinge verts sit at deck level (dy≈0 < 0.3) and outer verts on fills lie outside
-    # road coverage entirely, so only true cross-leg drapes trip it.
-    drop_over_road(shoulder, "shoulder", lo=0.3, hi=8.0)
+    # shoulder: SINK any geometry that rises over the deck to below it instead of dropping tris —
+    # dropped tris left HOLES in the embankment skirt (visible daylight under the road at the
+    # switchback stacks). Verts covered by road clamp under the local deck; tris still flagged by
+    # 7-point sampling (spanning faces) sink whole. Mesh stays watertight.
+    _sv2 = shoulder["vertices"]
+    _sunk = 0
+    for _vi in range(len(_sv2)):
+        _vx, _vy, _vz = _sv2[_vi]
+        _tops = _road_tops(_vx, _vz)
+        if _tops and _vy > min(_tops) + 0.15:
+            _sv2[_vi] = (_vx, min(_tops) - 0.4, _vz)
+            _sunk += 1
+    for _t2 in shoulder["tris"]:
+        _corners = [_sv2[_v] for _v in _t2]
+        # 2 m barycentric LATTICE, not fixed-count samples: a long drape tri spans the whole 6.5 m
+        # road between any 7 fixed points (the 5.3 km M-curve face survived vert, centroid AND
+        # 7-point sampling). Lattice density scales with the tri's longest edge.
+        _emax = max(math.hypot(_corners[_a][0] - _corners[(_a + 1) % 3][0],
+                               _corners[_a][2] - _corners[(_a + 1) % 3][2]) for _a in range(3))
+        _nsub = max(2, min(24, int(_emax / 2.0) + 1))
+        _samples = []
+        for _iu in range(_nsub + 1):
+            for _iv in range(_nsub + 1 - _iu):
+                _u = _iu / _nsub
+                _v2 = _iv / _nsub
+                _w2 = 1.0 - _u - _v2
+                _samples.append(tuple(_u * _corners[0][_k] + _v2 * _corners[1][_k] + _w2 * _corners[2][_k]
+                                      for _k in range(3)))
+        _local_tops = [min(_tops2) for _sx, _sy, _sz in _samples for _tops2 in [_road_tops(_sx, _sz)] if _tops2]
+        if _local_tops and any(_sy > min(_local_tops) + 0.15 for _sx, _sy, _sz in _samples):
+            _floor = min(_local_tops) - 0.4
+            for _v in _t2:
+                _vx, _vy, _vz = _sv2[_v]
+                if _vy > _floor:
+                    _sv2[_v] = (_vx, _floor, _vz)
+                    _sunk += 1
+    if _sunk:
+        print(f"  shoulder: sank {_sunk} verts under the deck (watertight — no drape holes)")
 
     barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
     drop_over_road(barrier, "warning barriers", lo=-1.0, hi=3.5)
@@ -630,7 +673,7 @@ def build(project_dir: str | Path) -> dict:
     # AC track collision is one-sided — every ground/drivable surface must face up or the car
     # falls straight through. The ribbon/terrain/shoulder/runoff/kerb/markings generators wind their
     # quads downward, so re-orient them up. (No barriers — corners run off onto open tarmac.)
-    for surface in (road, grass, shoulder, runoff, kerb, marks, xwalk, roadtext):
+    for surface in (road, grass, shoulder, runoff, kerb, marks, yline, xwalk, roadtext):
         if surface["tris"]:
             orient_up(surface)
     for _gn, cm in conn_meshes:
@@ -661,6 +704,8 @@ def build(project_dir: str | Path) -> dict:
         groups.append(("ROADTEXT", "kerb", roadtext))
     if barrier["tris"]:
         groups.append(("BARRIER_warning", "kerb", barrier))   # guardrails at sharp/blind corners
+    if yline["tris"]:
+        groups.append(("YLINE", "kerb", yline))
     for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh
         groups.append((gname, "road", cm))
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)

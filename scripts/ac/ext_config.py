@@ -131,33 +131,58 @@ def generate(project_dir: str | Path) -> Path:
                 "Type = POND", ""]
 
     if has_lights:
-        # Tunable per track via lighting.streetlight in track.config.json. Defaults are a realistic warm
-        # streetlight, NOT the old blinding values (intensity 30 = daylight-bright; RANGE 38 m with posts
-        # ~48 m apart made the pools overlap into a continuous wash). Dial with intensity/range_m/emissive.
+        # THE TWO DEAD-LIGHTS BUGS (found on the Lariat, same as San Diego's history through their
+        # v0.5.1): (1) NIGHT_SMOOTH is NOT a built-in CSP condition — without including
+        # common/conditions.ini it evaluates OFF forever; (2) a [LIGHT_SERIES] over ONE merged
+        # LIGHTS mesh emits a single light at the blob's centroid, not one per lamp. Fix per the
+        # working Lake Murray recipe: include the conditions file and emit an explicit [LIGHT_N]
+        # per lamp head — positions CLUSTERED FROM THE BUILT KN5 (frame-proof: whatever yaw/mirror
+        # the export applied, these are the shipped world coordinates).
         sl = (cfg_raw.get("lighting", {}) or {}).get("streetlight", {}) or {}
-        sl_i = sl.get("intensity", 5.0)     # CSP local-light intensity (was 30)
-        sl_r = sl.get("range_m", 24.0)      # reach in metres (was 38) — pools no longer fully overlap
-        sl_e = sl.get("emissive", 0.35)     # lamp-lens ksEmissive brightness 0..~1 (was 0.5)
-        # lamp hue, config-tunable: color = thrown light (0..1 rgb), emissive_color = lens glow
-        # (0..255 rgb). Defaults are the original warm sodium.
+        sl_i = sl.get("intensity", 5.0)
+        sl_r = sl.get("range_m", 24.0)
+        sl_e = sl.get("emissive", 0.35)
         sl_c = sl.get("color", [1.0, 0.82, 0.55])
         sl_ec = sl.get("emissive_color", [255, 209, 166])
-        out += ["; --- Streetlights: one light per cobra head + glowing lens at night ----------",
-                "[LIGHT_SERIES_STREETLIGHTS]",
-                "MESHES = LIGHTS",
-                "OFFSET = 0, -0.1, 0         ; LIGHTS is the compact lamp head (~8.8 m); drop at the lens",
-                f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i} ; rgb = lighting.streetlight.color; 4th = intensity (lighting.streetlight.intensity)",
-                "COLOR_OFF = 0, 0, 0, 0      ; fully off by day",
-                "CONDITION = NIGHT_SMOOTH    ; ramp on at dusk (CSP pre-shipped condition)",
-                f"RANGE = {sl_r}             ; metres (lighting.streetlight.range_m)",
-                "SPOT = 124",
-                "SPOT_SHARPNESS = 0.3",
-                "DIRECTION = 0, -1, 0        ; shine downward",
-                "CLUSTER_THRESHOLD = 8       ; posts are ~48 m apart -> one light each", "",
-                "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
+        out += ["; --- Streetlights (per-lamp; see dead-lights notes in ext_config.py) ---------",
+                "[INCLUDE]",
+                "INCLUDE = common/conditions.ini   ; defines NIGHT_SMOOTH — NOT built-in", ""]
+        heads: list[tuple[float, float, float]] = []
+        kn5p = project_dir / "build" / f"{slug}.kn5"
+        if kn5p.exists():
+            try:
+                from scripts.ac.verify_kn5 import _parse
+                _nodes, _meshes = _parse(kn5p)
+                pts = [v for m in _meshes if m["name"].upper() == "LIGHTS" for v in m["P"]]
+                buckets: dict[tuple[int, int], list] = {}
+                for x, y, z in pts:
+                    buckets.setdefault((int(x // 5), int(z // 5)), []).append((x, y, z))
+                for vs in buckets.values():
+                    heads.append(tuple(sum(c) / len(vs) for c in zip(*vs)))
+            except Exception as e:  # kn5 unreadable -> fall through to series
+                print(f"  [ext_config] LIGHTS clustering failed ({e}); falling back to LIGHT_SERIES")
+        if heads:
+            c255 = [round(255 * float(v)) for v in sl_c]
+            for i, (hx, hy, hz) in enumerate(sorted(heads)):
+                out += [f"[LIGHT_{i}]", "ACTIVE = 1",
+                        f"POSITION = {hx:.2f}, {hy - 0.15:.2f}, {hz:.2f}",
+                        "DIRECTION = 0, -1, 0",
+                        f"COLOR = {c255[0]}, {c255[1]}, {c255[2]}, {sl_i}",
+                        "COLOR_OFF = 0, 0, 0, 0",
+                        "SPOT = 124", "SPOT_SHARPNESS = 0.3",
+                        f"RANGE = {sl_r}", "RANGE_GRADIENT_OFFSET = 0.2",
+                        "FADE_AT = 220", "FADE_SMOOTH = 40",
+                        "CONDITION = NIGHT_SMOOTH", ""]
+            print(f"  [ext_config] {len(heads)} per-lamp [LIGHT_N] entries clustered from the kn5")
+        else:
+            out += ["[LIGHT_SERIES_STREETLIGHTS]", "MESHES = LIGHTS", "OFFSET = 0, -0.1, 0",
+                    f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i}", "COLOR_OFF = 0, 0, 0, 0",
+                    "CONDITION = NIGHT_SMOOTH", f"RANGE = {sl_r}", "SPOT = 124", "SPOT_SHARPNESS = 0.3",
+                    "DIRECTION = 0, -1, 0", "CLUSTER_THRESHOLD = 8", ""]
+        out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 "MATERIALS = LIGHTS_mat",
                 "KEY_0 = ksEmissive",
-                f"VALUE_0 = {sl_ec[0]}, {sl_ec[1]}, {sl_ec[2]}, {sl_e}  ; lamp-lens glow: 0-255 RGB (lighting.streetlight.emissive_color) + brightness (lighting.streetlight.emissive)",
+                f"VALUE_0 = {sl_ec[0]}, {sl_ec[1]}, {sl_ec[2]}, {sl_e}  ; lamp-lens glow (lighting.streetlight.emissive_color/.emissive)",
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 

@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -131,5 +131,10 @@
       "normal": "assets/textures/grass_normal.jpg",
       "_doc": "Alpine grass instead of dry dirt (Kevin) - mesh stays 1GRASS so physics, audits and GrassFX are untouched; GrassFX (lighting.grassfx) grows 3D blades on it."
     }
+  },
+  "road_markings": {
+    "style": "lane",
+    "center_yellow": true,
+    "_doc": "Lake Murray look: solid double-yellow centre + white edge lines (ribbon.lane_markings port); road asphalt tiles at 4 m to match."
   }
 }
