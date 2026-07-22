@@ -83,7 +83,9 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
     suffix = "" if (layout in ("full", "freeroam") or n_layouts <= 1) else f" — {lo_label}"
     return {
         "name": base_name + suffix,
-        "description": desc,
+        # build stamp UP FRONT: a full release cycle was burned diagnosing "fixed nothing" against a
+        # stale install — the version must be visible at a glance in CM, not just the version field.
+        "description": f"[build {cfg.version}] " + desc,
         "tags": tags,
         "geotags": [f"{cfg.lat}", f"{cfg.lon}"],
         "country": country, "city": city,

@@ -895,8 +895,16 @@ def build(project_dir: str | Path) -> dict:
             # which left the base floating ~0.25 m+ over the clamped grass beside the road (and more where
             # the verge slopes off). trees/bushes already use ground_y; poles now match.
             gy_pole = ground_y(px, pz)
-            if y - gy_pole > 4.0:      # verge falls away on a fill — a pole planted mid-embankment
-                continue               # puts its cobra head at windshield height over the lane; skip
+            # DOT PAD: a real pole stands on a pad graded to ITS road's level — never on whatever
+            # raw terrain happens to be 2 m off the edge. The old one-sided skip (y-gy>4) missed the
+            # opposite failure: a HIGH ground sample (cut face / the slope between stacked legs)
+            # planted the whole lamp metres above the verge — stub-looking masts, cobra heads
+            # floating in the sky, and their CSP lights turned into floodlights beaming from mid-air
+            # (v0.7.8, caught by render_drive_views at the hairpins). Clamp the base to a pad within
+            # [-1.5, +0.5] of the road; if the sample is another layer entirely, skip pole AND head.
+            if abs(y - gy_pole) > 6.0:
+                continue
+            gy_pole = max(min(gy_pole, y + 0.5), y - 1.5)
             shaft, lamphead = _streetlight(px, gy_pole, pz, nx, nz)   # arm reaches +n back over the lane
             if _lamp_module is not None:
                 # Kevin's black lamp model as the visible post (LIGHTPOST). The old procedural head

@@ -213,6 +213,34 @@ def check(project_dir: str | Path) -> dict:
         if p95 > 1.2 or bigf > 0.01 or nogf > 0.08:
             fails.append(f"{label}: p95 {p95:.2f} >3m {100*bigf:.1f}% no-ground {100*nogf:.0f}%")
 
+    # LAMP INTEGRITY: every lens cluster (LIGHTS) must have a mast (LIGHTPOST) under it that reaches
+    # it — an orphan head floats in the sky AND its clustered CSP light becomes a mid-air floodlight
+    # (v0.7.8: heads placed even when the pole was skipped/misplanted; feet-gates can't see this
+    # because the head has no foot). A head is orphaned if no LIGHTPOST vert within 3 m XZ comes
+    # within 2.5 m below its center.
+    heads_p = kn5.get("LIGHTS", [])
+    posts_p = kn5.get("LIGHTPOST", [])
+    if heads_p and posts_p:
+        ph = hash_pts(posts_p, cell=3.0)
+        hcl: dict = defaultdict(list)
+        for x, y, z in heads_p:
+            hcl[(int(x // 5), int(z // 5))].append((x, y, z))
+        orphans = 0
+        for vs in hcl.values():
+            hx = sum(v[0] for v in vs) / len(vs)
+            hy = sum(v[1] for v in vs) / len(vs)
+            hz = sum(v[2] for v in vs) / len(vs)
+            ci, cj = int(hx // 3.0), int(hz // 3.0)
+            reached = any(
+                (hx - rx) ** 2 + (hz - rz) ** 2 <= 9.0 and hy - 2.5 <= ry <= hy + 1.0
+                for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                for rx, ry, rz in ph.get((ci + di, cj + dj), ()))
+            if not reached:
+                orphans += 1
+        print(f"  lamp integrity: {len(hcl)} heads, orphaned (no mast reaching them): {orphans}")
+        if orphans:
+            fails.append(f"{orphans} lamp heads floating without a mast")
+
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
     ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []), cell=6.0)
     road = kn5.get("1ROAD_MAIN", [])

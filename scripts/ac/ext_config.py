@@ -190,6 +190,23 @@ def generate(project_dir: str | Path) -> Path:
                     f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i}", "COLOR_OFF = 0, 0, 0, 0",
                     "CONDITION = NIGHT_SMOOTH", f"RANGE = {sl_r}", "SPOT = 124", "SPOT_SHARPNESS = 0.3",
                     "DIRECTION = 0, -1, 0", "CLUSTER_THRESHOLD = 8", ""]
+        # Night damping ENFORCED IN-ENGINE: the kn5's baked ksDiffuse (pbr.KS_PROPS) is the first
+        # line, but CSP dynamic-light response paths vary by shader/version — this pins vegetation
+        # and grass response down at night regardless, so lamp cones read as pools on the ground
+        # instead of floodlit neon foliage ("Floodlights", v0.7.8).
+        veg_mats = ", ".join(f"{g}_mat" for g in groups
+                             if g.upper().startswith(("CONIFER", "TREES", "BUSHES", "PALMS")))
+        grass_mats2 = ", ".join(f"{g}_mat" for g in groups if g.upper().startswith(("1GRASS", "1LAWN")))
+        if veg_mats:
+            out += ["[MATERIAL_ADJUSTMENT_VEG_NIGHT]",
+                    f"MATERIALS = {veg_mats}",
+                    "KEY_0 = ksDiffuse", "VALUE_0 = 0.04", "VALUE_0_OFF = 0.10",
+                    "CONDITION = NIGHT_SMOOTH", ""]
+        if grass_mats2:
+            out += ["[MATERIAL_ADJUSTMENT_GRASS_NIGHT]",
+                    f"MATERIALS = {grass_mats2}",
+                    "KEY_0 = ksDiffuse", "VALUE_0 = 0.14", "VALUE_0_OFF = 0.22",
+                    "CONDITION = NIGHT_SMOOTH", ""]
         lights_mats = ", ".join(f"{g}_mat" for g in lights_groups) or "LIGHTS_mat"
         out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 f"MATERIALS = {lights_mats}",
