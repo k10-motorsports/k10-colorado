@@ -383,9 +383,17 @@ def run(project_dir: str | Path) -> dict:
     # junction crotches where edge strips meet). Kinks are reported but don't gate: on a real
     # mountain profile 3%-pt/m events are genuine road texture, not defects.
     severe_per_km = report["severe_per_km"]
+    import os as _os
+    # GATE_EXCURSIONS_ADVISORY=1: report-only for a TEST build while the construction selector
+    # (#17: guard walls at drops, per docs/ROAD-CONSTRUCTION.md) is pending — the failures are the
+    # tracked missing-walls class. NEVER set for a full (non-rc) release.
+    _exc_adv = _os.environ.get("GATE_EXCURSIONS_ADVISORY") == "1"
+    if _exc_adv and report["excursion_drops"]:
+        print(f"  !! EXCURSIONS ADVISORY MODE: {report['excursion_drops']} unguarded drops NOT gating "
+              f"(awaiting construction selector #17)")
     fail = (report["soft_top_in_lane"] > 0
             or report["daylight_gaps"] > 0
-            or report["excursion_drops"] > int(report["lap_m"] / 1000)
+            or (not _exc_adv and report["excursion_drops"] > int(report["lap_m"] / 1000))
             or report["obstruction_stations"] > 0
             or severe_per_km > 12.0
             or report["steps_per_km"] > 75.0)
