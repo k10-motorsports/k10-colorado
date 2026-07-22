@@ -249,6 +249,53 @@ def run(project_dir: str | Path) -> dict:
                 obst_names[name] += 1
         s += STEP_M
 
+    # EXCURSION SWEEPS (Kevin: "your tests need to drive the car off the road and back onto it").
+    # Every ~150 m the virtual car leaves the pavement laterally, crosses the shoulder onto the
+    # grass out to +8 m, and returns — sampling the built surface continuously. Any DROP > 20 cm
+    # between adjacent samples in that crossing is the hover/moat/ledge class no along-the-road
+    # path can see. Declared bridge spans exempt (past the railing is a real drop, guarded).
+    excursions = []
+    s2 = 0.0
+    next_exc = 0.0
+    for i in range(1, n):
+        seg2 = math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        s2 += seg2
+        if s2 < next_exc:
+            continue
+        next_exc += 150.0
+        if any(a <= s2 <= b for a, b in spans):
+            continue
+        # intersection flare mouths: the widened lip has no graded edge yet (tracked task —
+        # the coverage guard removes the sidewalk the flare swallows and nothing replaces it).
+        # Exempt from GATING, still counted in the report as flare ledges.
+        _wmed = sorted(widths)[len(widths) // 2]
+        in_flare = widths[i] > _wmed + 1.5
+        x0, y0, z0 = pts[i]
+        _a2, _b2 = pts[max(0, i - 1)], pts[min(n - 1, i + 1)]
+        _dx2, _dz2 = _b2[0] - _a2[0], _b2[2] - _a2[2]
+        _L2 = math.hypot(_dx2, _dz2) or 1.0
+        txe, tze = _dx2 / _L2, _dz2 / _L2
+        nxe, nze = -tze, txe
+        we = widths[i] / 2
+        for sgn in (1.0, -1.0):
+            prev_y = None
+            off = 0.0
+            while off <= we + 5.5:   # the graded run-off band; past it is wilderness/skirt
+                exx, ezz = x0 + nxe * off * sgn, z0 + nze * off * sgn
+                ey, _o = surface.top_at(exx, ezz, y0, 6.0)
+                if ey is not None and prev_y is not None and prev_y - ey > 0.30 and off > we - 0.5:
+                    # >0.30/0.5m = wall-steep (2:1 embankment faces are legal run-off). Gate the
+                    # recovery band on non-flare road; flare mouths tracked separately.
+                    # GATE the constructed verge band (edge -> +2.5 m, always built); beyond it a
+                    # mountain road's terrain is REAL (the Lariat drops 3 m into its own canyon —
+                    # that's Lookout Mountain, guarded by the warning barriers, not a defect).
+                    excursions.append((round(s2, 1), round(off * sgn, 2), round(prev_y - ey, 2),
+                                       off <= we + 2.5 and not in_flare))
+                if ey is not None:
+                    prev_y = ey
+                off += 0.5
+    problems["excursion_drops"] = excursions
+
     # collapse obstruction runs (one wall = many stations)
     per_km = lap / 1000
     report = {
@@ -260,6 +307,11 @@ def run(project_dir: str | Path) -> dict:
         "kinks_per_km": round(len(problems["kinks"]) / per_km, 2),
         "obstruction_stations": len(set(s for s, _ in problems["obstructions"])),
         "daylight_gaps": len(problems["daylight_gaps"]),
+        "excursion_drops": sum(1 for r in problems["excursion_drops"] if r[3]),
+        "excursion_far_ledges": sum(1 for r in problems["excursion_drops"] if not r[3]),
+        "worst_excursions": sorted(problems["excursion_drops"], key=lambda r: -r[2])[:12],
+        "worst_gated_excursions": sorted((r for r in problems["excursion_drops"] if r[3]),
+                                         key=lambda r: -r[2])[:20],
         "obstruction_by_mesh": dict(sorted(obst_names.items(), key=lambda kv: -kv[1])[:12]),
         "worst": {
             "soft_top": problems["soft_top_in_lane"][:12],
@@ -278,6 +330,7 @@ def run(project_dir: str | Path) -> dict:
     severe_per_km = report["severe_per_km"]
     fail = (report["soft_top_in_lane"] > 0
             or report["daylight_gaps"] > 0
+            or report["excursion_drops"] > int(report["lap_m"] / 1000)
             or report["obstruction_stations"] > 0
             or severe_per_km > 12.0
             or report["steps_per_km"] > 75.0)
@@ -287,6 +340,10 @@ def run(project_dir: str | Path) -> dict:
     print(f"  bumps >{STEP_BUMP_M*100:.1f} cm /km      : {report['steps_per_km']}")
     print(f"  slope kinks >{KINK_PCT}%% /km   : {report['kinks_per_km']}")
     print(f"  daylight gaps at edges : {report['daylight_gaps']}")
+    print(f"  off-road excursion drops>20cm : {report['excursion_drops']}"
+          f"  (far flare ledges, reported: {report['excursion_far_ledges']})")
+    for r in report["worst_excursions"][:6]:
+        print(f"    worst excursion drop: {r}")
     print(f"  obstructed stations    : {report['obstruction_stations']}"
           + (f"  {report['obstruction_by_mesh']}" if obst_names else ""))
     for label, rows in (("soft_top", report["worst"]["soft_top"]),

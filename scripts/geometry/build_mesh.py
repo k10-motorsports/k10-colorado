@@ -24,9 +24,15 @@ from scripts.geometry import profile as profile_mod
 from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
-ROAD_LIFT_M = 0.1  # small crown above the graded terrain (a real road sits ~0.1 m proud, not floating)
-GRASS_CLEARANCE_M = 0.25 # sink near-road grass this far below the road so the coarse grid can't bulge
-#                          a triangle up through the road on steep bits (corkscrew); shoulder meets it.
+# FLUSH EDGES (the "road hovering" root cause): 0.1 lift + 0.25 clearance stacked to a permanent
+# 35 cm step down from every pavement edge to the world — the whole road read as a plank floating
+# over the landscape, in every photo, on every track. Real dirt meets real pavement within ~2 cm.
+# The poke risk these big margins papered over is the drive test's and audit H's job to catch.
+ROAD_LIFT_M = 0.0001  # 0.1 mm (Kevin: zero visible ledge anywhere)
+# 0.03 is NOT a visible gap: it lives strictly UNDER the asphalt slab (anti z-fight/anti poke — at
+# literal 0.0 the drive test found grass coplanar IN THE LANE). The visible seam is the shoulder
+# draping onto the grass, which meets at exactly 0.
+GRASS_CLEARANCE_M = 0.03
 
 
 def read_npy(path: Path) -> list[list[float]]:
@@ -486,7 +492,8 @@ def build(project_dir: str | Path) -> dict:
     # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors) so the
     # graded grass surface is FINAL before the edge strips drape onto it. One-sided (natural dips survive).
     ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts,
-                                    clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]))
+                                    clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
+                                    foot_m=8.0, recover=0.35)
     # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
     # edge strips DRAPE onto so their outer lip sits flush on the ground at road resolution (no float,
     # independent of the coarse grass grid). Same sampler build_env + audit use via ground.local.json.
@@ -624,13 +631,43 @@ def build(project_dir: str | Path) -> dict:
     # rainbow-road layers Kevin flew off. Only sink relative to decks within OWN_DECK_DY of the
     # vert itself — a shoulder rides within ~2 m of its own deck by construction.
     OWN_DECK_DY = 4.0
+    # COVERAGE-AWARE deck sampling: min() over hash-cell VERTS spans BOTH carriageway edges on a
+    # 6.5 m road (one 4 m cell) — on every crossfalled section the shoulder lip was compared
+    # against the LOWER far edge and sunk 0.4 under it (the 0.6 m "shoulder separated" step Kevin
+    # kept driving off, both tracks). "Rises over the deck" only means anything where a road TRI
+    # actually covers this XZ — barycentric sample of the road surface, or leave the vert alone.
+    from collections import defaultdict as _rdd
+    _rc3: dict = _rdd(list)
+    _rv3 = road["vertices"]
+    for _t9 in road["tris"]:
+        _xs9 = [_rv3[_v][0] for _v in _t9]; _zs9 = [_rv3[_v][2] for _v in _t9]
+        for _ci9 in range(int(min(_xs9) // 4.0), int(max(_xs9) // 4.0) + 1):
+            for _cj9 in range(int(min(_zs9) // 4.0), int(max(_zs9) // 4.0) + 1):
+                _rc3[(_ci9, _cj9)].append(_t9)
+
+    def _road_surf_at(px9, pz9, y_ref9):
+        best9 = None
+        for _t9 in _rc3.get((int(px9 // 4.0), int(pz9 // 4.0)), ()):
+            _a9, _b9, _c9 = _rv3[_t9[0]], _rv3[_t9[1]], _rv3[_t9[2]]
+            _d9 = (_b9[2] - _c9[2]) * (_a9[0] - _c9[0]) + (_c9[0] - _b9[0]) * (_a9[2] - _c9[2])
+            if abs(_d9) < 1e-12:
+                continue
+            _w09 = ((_b9[2] - _c9[2]) * (px9 - _c9[0]) + (_c9[0] - _b9[0]) * (pz9 - _c9[2])) / _d9
+            _w19 = ((_c9[2] - _a9[2]) * (px9 - _c9[0]) + (_a9[0] - _c9[0]) * (pz9 - _c9[2])) / _d9
+            _w29 = 1.0 - _w09 - _w19
+            if _w09 >= -1e-6 and _w19 >= -1e-6 and _w29 >= -1e-6:
+                _y9 = _w09 * _a9[1] + _w19 * _b9[1] + _w29 * _c9[1]
+                if abs(_y9 - y_ref9) <= OWN_DECK_DY and (best9 is None or _y9 < best9):
+                    best9 = _y9
+        return best9
+
     _sv2 = shoulder["vertices"]
     _sunk = 0
     for _vi in range(len(_sv2)):
         _vx, _vy, _vz = _sv2[_vi]
-        _tops = [_t for _t in _road_tops(_vx, _vz) if abs(_t - _vy) <= OWN_DECK_DY]
-        if _tops and _vy > min(_tops) + 0.15:
-            _sv2[_vi] = (_vx, min(_tops) - 0.4, _vz)
+        _deck9 = _road_surf_at(_vx, _vz, _vy)
+        if _deck9 is not None and _vy > _deck9 + 0.15:
+            _sv2[_vi] = (_vx, _deck9 - 0.4, _vz)
             _sunk += 1
     for _t2 in shoulder["tris"]:
         _corners = [_sv2[_v] for _v in _t2]
@@ -649,10 +686,11 @@ def build(project_dir: str | Path) -> dict:
                 _samples.append(tuple(_u * _corners[0][_k] + _v2 * _corners[1][_k] + _w2 * _corners[2][_k]
                                       for _k in range(3)))
         _tri_y = sum(_c[1] for _c in _corners) / 3.0
-        _local_tops = [min(_tops2) for _sx, _sy, _sz in _samples
-                       for _tops2 in [[_t for _t in _road_tops(_sx, _sz) if abs(_t - _tri_y) <= OWN_DECK_DY]]
-                       if _tops2]
-        if _local_tops and any(_sy > min(_local_tops) + 0.15 for _sx, _sy, _sz in _samples):
+        _local_tops = [_d9 for _sx, _sy, _sz in _samples
+                       for _d9 in [_road_surf_at(_sx, _sz, _tri_y)] if _d9 is not None]
+        if _local_tops and any(_sy > _d9 + 0.15 for (_sx, _sy, _sz), _d9 in
+                               zip([_p for _p in _samples for _q in [_road_surf_at(_p[0], _p[2], _tri_y)] if _q is not None],
+                                   _local_tops)):
             _floor = min(_local_tops) - 0.4
             for _v in _t2:
                 _vx, _vy, _vz = _sv2[_v]

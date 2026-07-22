@@ -24,7 +24,7 @@ from pathlib import Path
 from scripts.ac.verify_kn5 import _parse
 
 BUCKETS = ("1ROAD_MAIN", "1ROAD_SHOULDER", "1GRASS", "1WALL", "1KERB", "1RUNOFF",
-           "LIGHTPOST", "LIGHTS", "FENCEWOOD", "CONIFER", "MARKINGS", "YLINE",
+           "LIGHTPOST", "LIGHTS", "LAMPHEAD", "FENCEWOOD", "CONIFER", "MARKINGS", "YLINE",
            "HIGHWAY", "HWYSTRUCT", "EUROSIGN", "SIGNPOST", "GANTRY")
 TOL = 0.08          # m — importer/exporter float chatter is ~mm; anything real is metres
 SAMPLE = 23         # every Nth vert per bucket
@@ -354,7 +354,7 @@ def check(project_dir: str | Path) -> dict:
     # because the head has no foot). A head is orphaned if no LIGHTPOST vert within 3 m XZ comes
     # within 2.5 m below its center.
     heads_p = kn5.get("LIGHTS", [])
-    posts_p = kn5.get("LIGHTPOST", [])
+    posts_p = kn5.get("LIGHTPOST", []) + kn5.get("LAMPHEAD", [])   # housing is part of the mast chain
     if heads_p and posts_p:
         ph = hash_pts(posts_p, cell=3.0)
         hcl: dict = defaultdict(list)
@@ -375,6 +375,41 @@ def check(project_dir: str | Path) -> dict:
         print(f"  lamp integrity: {len(hcl)} heads, orphaned (no mast reaching them): {orphans}")
         if orphans:
             fails.append(f"{orphans} lamp heads floating without a mast")
+
+    # FLUSH EDGES — the metric that matches the driver's eye: along the lap, the pavement edge
+    # (outermost road/shoulder surface) and the terrain just beyond it must MEET. A permanent step
+    # (0.35 m by the old constants) reads as the entire road hovering over the landscape — which it
+    # was, in every night photo, while every other gate was green.
+    edge_pts = []
+    if fcp.exists():
+        fc2 = json.loads(fcp.read_text())
+        pts2 = fc2["points_xyz_m"] if isinstance(fc2, dict) else fc2
+        wid2 = (fc2.get("widths_m") if isinstance(fc2, dict) else None) or [7.0] * len(pts2)
+        cy2, sy2 = math.cos(yaw), math.sin(yaw)
+        for i in range(0, len(pts2) - 1, 5):
+            x0, y0, z0 = pts2[i]
+            x1, _, z1 = pts2[i + 1]
+            tx2, tz2 = x1 - x0, z1 - z0
+            L2 = math.hypot(tx2, tz2) or 1.0
+            nx2, nz2 = -tz2 / L2, tx2 / L2
+            for sgn in (1.0, -1.0):
+                # sample at pavement edge + 3.5 m (beyond the shoulder verge band) and +6 m
+                for lat in (wid2[i] / 2 + 3.5, wid2[i] / 2 + 6.0):
+                    ex, ez = x0 + nx2 * lat * sgn, z0 + nz2 * lat * sgn
+                    kx5, kz5 = ex * cy2 - ez * sy2, ex * sy2 + ez * cy2
+                    p_in = tri_surf(kx5, kz5, y0)      # nearest surface here (pavement or verge)
+                    if p_in is not None:
+                        edge_pts.append((y0, p_in, lat))
+    if edge_pts:
+        # the verge beyond the shoulder should ride close under the deck: deck - terrain there
+        steps = sorted(y0 - pi for y0, pi, lat in edge_pts)
+        nE = len(steps)
+        medE = steps[nE // 2]
+        p95E = steps[19 * nE // 20]
+        # INFORMATIONAL: verge sits below deck wherever the land legitimately falls (fills/cuts),
+        # so absolute thresholds here gate terrain relief, not hover. Enforcement of "drive off
+        # and back on" lives in the drive test's excursion sweeps (continuous, step-based).
+        print(f"  flush edges (info): {nE} samples  deck-vs-verge median {medE:+.2f}  p95 {p95E:+.2f}")
 
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
     ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []), cell=6.0)

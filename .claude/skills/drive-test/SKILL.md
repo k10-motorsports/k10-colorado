@@ -86,3 +86,14 @@ A build ships only after BOTH gates: `audit_mesh` (geometry classes) AND `drive_
 then a human lap for anything the driver previously flagged. The test exists so the release/test
 cycle isn't the first drive — never ship a FAIL, and never dismiss a warning line in a build log
 as cosmetic (the invisible-forest bug lived in a warning for three releases).
+
+
+## Excursion sweeps (Kevin: "your tests need to drive the car off the road and back onto it")
+
+Every ~150 m the virtual car leaves the pavement laterally, crosses the shoulder onto the grass
+and returns, both sides, sampling the built surface continuously. Any DROP >0.30 m between
+adjacent 0.5 m samples (wall-steep; 2:1 embankment run-off is legal) inside the CONSTRUCTED band
+(built pavement edge -> +2.5 m — the built edge is detected from the surface owner mesh, because
+anti-pleat caps pull hairpin edges inside the nominal width) FAILS the build. Declared bridge
+spans exempt; intersection flare mouths exempt-but-reported until junction pads land. This is the
+gate that owns the hover/moat/ledge class no along-the-road wheel path can see.

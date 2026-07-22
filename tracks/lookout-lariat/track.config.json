@@ -162,7 +162,7 @@
       ],
       "spot_deg": 155,
       "spot_sharpness": 0.1,
-      "range_gradient_offset": 0.4,
+      "range_gradient_offset": 0.55,
       "specular_mult": 0.12
     }
   },

@@ -391,7 +391,8 @@ def grade_embankment(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
 
 def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vertex],
                              *, reach: float = 11.0, clear: float = 0.25, cell: float = 12.0,
-                             grid_spacing: float | None = None) -> None:
+                             grid_spacing: float | None = None,
+                             foot_m: float | None = None, recover: float = 0.0) -> None:
     """One-sided ANTI-POKE against the ACTUAL built road surface. For every terrain grid node within
     ``reach`` m of a road vertex, if the node sits above ``road_y - clear`` push it DOWN to that level so
     no grass triangle pokes up through the drivable ribbon. Never RAISES a node (natural dips survive).
@@ -417,6 +418,17 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
     # layers Kevin drove through). A road vert far below the node's own height belongs to a DIFFERENT
     # leg: never conform across more than LAYER_DY of vertical separation.
     LAYER_DY = 20.0
+    # DISTANCE-GRADED, not a flat shave: clamping every node within reach to road_y - clear carved
+    # a reach-wide (15 m on a 10 m grid) sunken APRON along the whole lap — the dark moat between
+    # road edge and natural grass in Kevin's night photo. Full clamp beside the pavement, then the
+    # allowed height RECOVERS with distance at a natural slope: near nodes still pin the triangles
+    # down (anti-poke intact), the terrain rejoins its real height instead of a shaved terrace.
+    # foot_m/recover=None,0 -> classic flat shave (used for the tight under-shoulder clamp).
+    # The ROAD-corridor call passes foot_m past the shoulder's reach so the moat ends where the
+    # drape ends, and terrain recovery can NEVER rise into the wheel path (drive test at the Sand
+    # Creek bridge approach caught a 0.43 m step when recovery started inside the verge band).
+    FOOT_M = foot_m if foot_m is not None else reach + 1.0
+    RECOVER = recover
     for row in grid_xyz:
         for k in range(len(row)):
             gx, gy, gz = row[k]
@@ -425,8 +437,10 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
             for di in (-1, 0, 1):
                 for dj in (-1, 0, 1):
                     for rx, ry, rz in buckets.get((ci + di, cj + dj), ()):
-                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= r2 and gy - ry <= LAYER_DY:
-                            t = ry - clear
+                        d2 = (gx - rx) ** 2 + (gz - rz) ** 2
+                        if d2 <= r2 and gy - ry <= LAYER_DY:
+                            d = d2 ** 0.5
+                            t = ry - clear + max(0.0, d - FOOT_M) * RECOVER
                             if lim is None or t < lim:
                                 lim = t
             if lim is not None and gy > lim:

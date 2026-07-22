@@ -48,6 +48,7 @@ TEXTURES = {
     "CONIFER": ("conifer_atlas.png", None, 0.90, (0.09, 0.20, 0.09, 1), 0.0, False),  # pine/spruce billboards (mountain tracks, scenery.tree_style "conifer")
     "LIGHTS":  ("solid_lens_warm.png", None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),  # cobra-head lamp lens — SOLID TEXTURE (texture-less = renders BLACK); CSP adds ksEmissive at night
     "LIGHTPOST": ("solid_metal_dark.png", None, 0.60, (0.28, 0.29, 0.31, 1), 0.5, False),  # galvanized streetlight mast + arm — SOLID TEXTURE (was texture-less -> BLACK -> invisible posts, v0.7.5)
+    "LAMPHEAD": ("solid_metal_dark.png", None, 0.55, (0.32, 0.33, 0.35, 1), 0.3, False),  # luminaire housing — faint CSP night emissive so the lens reads attached
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
     "MOUNTAINS": (None, None, 0.95, (0.52, 0.57, 0.66, 1), 0.0, False),  # hazy blue Front Range backdrop (flat silhouette)
     "SIGNPOST": ("solid_metal_grey.png", None, 0.60, (0.45, 0.46, 0.48, 1), 0.0, False),      # grey metal posts — SOLID TEXTURE (texture-less renders black)
@@ -73,6 +74,8 @@ KS_PROPS = {
     "PALMS":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "FENCEWOOD": {"ksAmbient": 0.45, "ksDiffuse": 0.35, "ksSpecular": 0.05, "ksSpecularEXP": 8.0},
     "1GRASS":   {"ksAmbient": 0.50, "ksDiffuse": 0.22, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "POLE":     {"ksAmbient": 0.40, "ksDiffuse": 0.15, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "SIGNPOST": {"ksAmbient": 0.40, "ksDiffuse": 0.25, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
 }
 
 

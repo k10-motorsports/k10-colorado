@@ -207,6 +207,14 @@ def generate(project_dir: str | Path) -> Path:
                     f"MATERIALS = {grass_mats2}",
                     "KEY_0 = ksDiffuse", "VALUE_0 = 0.14", "VALUE_0_OFF = 0.22",
                     "CONDITION = NIGHT_SMOOTH", ""]
+        head_mats = ", ".join(f"{g}_mat" for g in groups if g.upper().startswith("LAMPHEAD"))
+        if head_mats:
+            out += ["[MATERIAL_ADJUSTMENT_LAMPHEADS]",
+                    f"MATERIALS = {head_mats}",
+                    "KEY_0 = ksEmissive",
+                    "VALUE_0 = 90, 82, 66, 0.10   ; faintly lit luminaire housing — the lens reads ATTACHED",
+                    "VALUE_0_OFF = 0, 0, 0, 0",
+                    "CONDITION = NIGHT_SMOOTH", ""]
         lights_mats = ", ".join(f"{g}_mat" for g in lights_groups) or "LIGHTS_mat"
         out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
                 f"MATERIALS = {lights_mats}",

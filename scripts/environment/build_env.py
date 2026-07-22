@@ -816,6 +816,26 @@ def build(project_dir: str | Path) -> dict:
         # A post-top luminaire yields (~0, top, ~0) — emitter INSIDE the head atop the mast; an
         # arm style yields the arm tip. The old hardcoded (+1.2 m, 9.75) floated the glowing lens
         # BESIDE this model's actual fixture.
+        # split the model at the neck: the HEAD SHELL becomes its own mesh (LAMPHEAD) with a faint
+        # night emissive — a glowing lens inside a pitch-black housing reads as a detached orb
+        # ("Floating. Floating. Floating."); a softly lit housing reads as a streetlight.
+        def _split_module(mod, cut_y):
+            lo = {"vertices": [], "uvs": [], "tris": []}
+            hi = {"vertices": [], "uvs": [], "tris": []}
+            lo_map, hi_map = {}, {}
+            for t in mod["tris"]:
+                dest, dmap = (hi, hi_map) if all(mod["vertices"][v][1] > cut_y for v in t) else (lo, lo_map)
+                nt = []
+                for v in t:
+                    j = dmap.get(v)
+                    if j is None:
+                        j = dmap[v] = len(dest["vertices"])
+                        dest["vertices"].append(mod["vertices"][v])
+                        dest["uvs"].append(mod["uvs"][v])
+                    nt.append(j)
+                dest["tris"].append(tuple(nt))
+            return lo, hi
+        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 8.8)
         _top_y = max(v[1] for v in _lamp_module["vertices"])
         _top = [v for v in _lamp_module["vertices"] if v[1] > _top_y - 1.0]
         _lamp_fixture = (sum(v[0] for v in _top) / len(_top),
@@ -896,7 +916,8 @@ def build(project_dir: str | Path) -> dict:
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     # Split geometry: the mast (LIGHTPOST, dark) and the lamp head (LIGHTS, emissive) are separate meshes
     # so only the head glows at night — not the whole 9 m stick (the old single-quad LIGHTS defect).
-    lightpost_meshes, lighthead_meshes, nlights = [], [], 0
+    lightpost_meshes, lighthead_meshes, headshell_meshes, nlights = [], [], [], 0
+    lamp_xz: list[tuple[float, float]] = []   # pole-collision avoidance for the powerline pass
     l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
     for i in range(1, len(loop)) if l_spacing > 0 else ():   # <=0 disables (mountain roads are unlit)
@@ -937,14 +958,16 @@ def build(project_dir: str | Path) -> dict:
                 # BOX is gone ("flooring boxes") — replaced by a 2 cm marker tri INSIDE the model's
                 # head: invisible in game, but the CSP per-lamp lights still cluster from the LIGHTS
                 # mesh in the kn5, so the glow comes from the pole itself with no frame math.
-                base2 = {"vertices": [], "uvs": [], "tris": []}
                 tl2 = math.hypot(nx, nz) or 1e-9
                 txl, tzl = nz / tl2, -nx / tl2
-                for mx, my, mz in _lamp_module["vertices"]:
-                    base2["vertices"].append((px + txl * mz + nx * mx, gy_pole + my, pz + tzl * mz + nz * mx))
-                base2["uvs"] = list(_lamp_module["uvs"])
-                base2["tris"] = list(_lamp_module["tris"])
-                shaft = base2
+
+                def _inst(mod):
+                    out2 = {"vertices": [(px + txl * mz + nx * mx, gy_pole + my, pz + tzl * mz + nz * mx)
+                                         for mx, my, mz in mod["vertices"]],
+                            "uvs": list(mod["uvs"]), "tris": list(mod["tris"])}
+                    return out2
+                shaft = _inst(_lamp_shaft_mod)
+                headshell_meshes.append(_inst(_lamp_head_mod))
                 _fx, _fy, _fz = _lamp_fixture
                 _tl3 = math.hypot(nx, nz) or 1e-9
                 _txl3, _tzl3 = nz / _tl3, -nx / _tl3
@@ -963,9 +986,11 @@ def build(project_dir: str | Path) -> dict:
                                 "uvs": [(0, 0), (1, 0), (0, 1)], "tris": [(0, 1, 2)]}
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
+            lamp_xz.append((px, pz))
             nlights += 1
     lightposts = _merge(lightpost_meshes)
     lightheads = _merge(lighthead_meshes)
+    headshells = _merge(headshell_meshes)
 
     # --- overhead power lines (poles + sagging cables) — ubiquitous in industrial Commerce City; the
     #     real-world capture shows them in nearly every frame. Poles on the LEFT verge (streetlights are
@@ -986,6 +1011,11 @@ def build(project_dir: str | Path) -> dict:
         nx, nz = -tz, tx
         off = widths[i] / 2 + 3.5                      # left verge, just beyond the streetlight line
         bx, bz = x + nx * off, z + nz * off
+        # a wood pole within a lamp's immediate throw gets torched into a glowing yellow mast
+        # (Sand Creek's "lightsaber" — side-alternation put every other lamp on the pole verge).
+        # Real utilities co-locate or skip; we skip.
+        if any((bx - lx2) ** 2 + (bz - lz2) ** 2 < 49.0 for lx2, lz2 in lamp_xz):
+            continue
         if on_surface(bx, bz):                         # base would sit on a crossing/fold-back road — skip the
             continue                                   # pole (the wire then spans to the next kept pole, i.e. an
                                                        # overhead crossing — realistic, and wires are visual-only)
@@ -1124,7 +1154,7 @@ def build(project_dir: str | Path) -> dict:
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes,
                    ranch_fences, pylon_line, sign_plates, sign_posts2,
-                   lightposts, lightheads,
+                   lightposts, lightheads, headshells,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -1142,6 +1172,7 @@ def build(project_dir: str | Path) -> dict:
                *split_mesh_under_cap("BUSHES", "grass", bushes),
                *split_mesh_under_cap("LIGHTPOST", "road", lightposts),
                *split_mesh_under_cap("LIGHTS", "road", lightheads),
+               *split_mesh_under_cap("LAMPHEAD", "road", headshells),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
