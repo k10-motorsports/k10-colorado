@@ -132,6 +132,9 @@ def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=No
                 # height is corrupt or another terrain layer — skip the instance, never fly/bury it.
                 if by is None or abs(by - y) > 45.0:
                     continue
+                # footing sink (per-range): tall towers on rough terrain bury their footings — a
+                # 10 m-grid drape leaves a corner up to ~1 m proud of the true surface otherwise.
+                by -= float(rg.get("sink_m", 0.0))
                 base = len(out["vertices"])
                 for mx, my, mz in module["vertices"]:
                     out["vertices"].append((bx + tx * mz + nx * mx, by + my, bz + tz * mz + nz * mx))

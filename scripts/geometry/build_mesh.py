@@ -673,7 +673,7 @@ def build(project_dir: str | Path) -> dict:
         # edge-surface sampler: road + shoulder tri tops, so barrier bases meet the pavement bench
         from collections import defaultdict as _bdd
         _bc2: dict = _bdd(list)
-        for _mesh2 in (road, shoulder):
+        for _mesh2 in (road, shoulder, grass):   # grass too: SC barriers stand past the sidewalk lip
             _mv2 = _mesh2["vertices"]
             for _t3 in _mesh2["tris"]:
                 _xs3 = [_mv2[_v][0] for _v in _t3]; _zs3 = [_mv2[_v][2] for _v in _t3]
@@ -692,6 +692,18 @@ def build(project_dir: str | Path) -> dict:
                 _a3, _b3, _c3 = _mv2[_t3[0]], _mv2[_t3[1]], _mv2[_t3[2]]
                 _d3 = (_b3[2] - _c3[2]) * (_a3[0] - _c3[0]) + (_c3[0] - _b3[0]) * (_a3[2] - _c3[2])
                 if abs(_d3) < 1e-12:
+                    continue
+                # GROUND means WALKABLE: a near-vertical face (drape lip, curb face, skirt)
+                # barycentric-answers any height in its span — the closest-to-y_ref pick then
+                # believes the ground is wherever the module already floats. Slope > ~60 deg is
+                # a wall, not a seat.
+                _e13 = (_b3[0] - _a3[0], _b3[1] - _a3[1], _b3[2] - _a3[2])
+                _e23 = (_c3[0] - _a3[0], _c3[1] - _a3[1], _c3[2] - _a3[2])
+                _ny3 = _e13[2] * _e23[0] - _e13[0] * _e23[2]
+                _nx3 = _e13[1] * _e23[2] - _e13[2] * _e23[1]
+                _nz3 = _e13[0] * _e23[1] - _e13[1] * _e23[0]
+                _nl3 = (_nx3 * _nx3 + _ny3 * _ny3 + _nz3 * _nz3) ** 0.5 or 1.0
+                if abs(_ny3) / _nl3 < 0.5:
                     continue
                 _w03 = ((_b3[2] - _c3[2]) * (px3 - _c3[0]) + (_c3[0] - _b3[0]) * (pz3 - _c3[2])) / _d3
                 _w13 = ((_c3[2] - _a3[2]) * (px3 - _c3[0]) + (_a3[0] - _c3[0]) * (pz3 - _c3[2])) / _d3
@@ -729,10 +741,34 @@ def build(project_dir: str | Path) -> dict:
             _base5 = min(v[1] for v in _blk)
             _cx5 = sum(v[0] for v in _blk) / len(_blk)
             _cz5 = sum(v[2] for v in _blk) / len(_blk)
-            _g5 = _edge_surface_y(_cx5, _cz5, _base5)
-            if _g5 is None or abs(_g5 + 0.02 - _base5) > 3.5:
+            # seat by the module's ACTUAL BASE VERTS: drop until the worst overhanging column
+            # touches its local surface. Center- and bbox-corner sampling both lost the seesaw at
+            # Sand Creek's sidewalk-drape lip (module rests on the lip, outboard base columns
+            # overhang 0.6 m of daylight over the grass beyond it).
+            _drops5 = []
+            _sups5 = []
+            for _v5 in _blk:
+                if _v5[1] > _base5 + 0.25:
+                    continue                     # not a base vert
+                _g5v = _edge_surface_y(_v5[0], _v5[2], _v5[1])
+                if _g5v is not None:
+                    _drops5.append(_g5v - _v5[1])
+                # SUPPORT view (gate semantics): highest walkable at/below the vert
+                _g5s = _edge_surface_y(_v5[0], _v5[2], None)
+                if _g5s is not None and _g5s <= _v5[1] + 0.6:
+                    _sups5.append(_g5s - _v5[1])
+            if not _drops5:
                 continue
-            _dy5 = (_g5 + 0.02) - _base5
+            _dy5 = min(_drops5) + 0.02
+            # HOVER REPAIR: if even the best-supported base vert would still be > 0.28 above its
+            # support after the primary drop, the whole module hovers (the gate's criterion) —
+            # drop it the rest of the way. Second pass, lower-only.
+            if _sups5:
+                _hover5 = -(max(_sups5) + _dy5)   # best vert's gap AFTER primary drop
+                if _hover5 > 0.28:
+                    _dy5 -= _hover5 - 0.02
+            if abs(_dy5) > 3.5:
+                continue
             if abs(_dy5) > 1e-4:
                 for _i5 in range(_s5, _s5 + len(_blk)):
                     _x5, _y5, _z5 = _bv5[_i5]

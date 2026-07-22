@@ -216,6 +216,36 @@ def check(project_dir: str | Path) -> dict:
     # XZ): Sand Creek shipped 100% of its barriers hovering +0.59 m median while the vertex gate
     # read +0.15. Feet are measured against the barycentric surface of the actual ground TRIANGLES.
     # Still excluded: mast arms (a column with a lower column of the same object within 3.5 m).
+    # declared bridge spans (+approach margin): a wall foot there is a railing guarding the drop —
+    # being above the bank grass is its JOB (Sand Creek's e46th approach read as 278 floating feet).
+    span_pts = []
+    fcp = project_dir / "data" / "finished_centerline.json"
+    try:
+        from scripts.capture import evidence
+        spans = evidence.bridge_spans(project_dir)
+        if spans and fcp.exists():
+            fc = json.loads(fcp.read_text())
+            pts_fc = fc["points_xyz_m"] if isinstance(fc, dict) else fc
+            st = 0.0
+            for i in range(1, len(pts_fc)):
+                st += math.hypot(pts_fc[i][0] - pts_fc[i - 1][0], pts_fc[i][2] - pts_fc[i - 1][2])
+                if any(abs(st - c0) < l0 / 2 + 80.0 for c0, l0 in spans):
+                    # centerline is OBJ-frame; feet are KN5-frame — rotate by the ship yaw
+                    _cx, _cz = pts_fc[i][0], pts_fc[i][2]
+                    _cy, _sy = math.cos(yaw), math.sin(yaw)
+                    span_pts.append((_cx * _cy - _cz * _sy, _cx * _sy + _cz * _cy))
+    except Exception:
+        pass
+    span_h = defaultdict(list)
+    for sx2, sz2 in span_pts:
+        span_h[(int(sx2 // 16), int(sz2 // 16))].append((sx2, sz2))
+
+    def on_bridge_span(x, z):
+        ci, cj = int(x // 16), int(z // 16)
+        return any((x - sx2) ** 2 + (z - sz2) ** 2 <= 256.0
+                   for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                   for sx2, sz2 in span_h.get((ci + di, cj + dj), ()))
+
     tri_h = defaultdict(list)
     for _mn, _mp, _mi in _parse_tris(kn5p):
         if _mn.upper().startswith(("1ROAD", "1GRASS")):
@@ -232,6 +262,14 @@ def check(project_dir: str | Path) -> dict:
                     d0 = (b[2] - c2[2]) * (a[0] - c2[0]) + (c2[0] - b[0]) * (a[2] - c2[2])
                     if abs(d0) < 1e-12:
                         continue
+                    e1 = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                    e2 = (c2[0] - a[0], c2[1] - a[1], c2[2] - a[2])
+                    ny2 = e1[2] * e2[0] - e1[0] * e2[2]
+                    nx2 = e1[1] * e2[2] - e1[2] * e2[1]
+                    nz2 = e1[0] * e2[1] - e1[1] * e2[0]
+                    nl2 = (nx2 * nx2 + ny2 * ny2 + nz2 * nz2) ** 0.5 or 1.0
+                    if abs(ny2) / nl2 < 0.5:
+                        continue        # wall-steep face, not ground
                     w0 = ((b[2] - c2[2]) * (x - c2[0]) + (c2[0] - b[0]) * (z - c2[2])) / d0
                     w1 = ((c2[2] - a[2]) * (x - c2[0]) + (a[0] - c2[0]) * (z - c2[2])) / d0
                     w2 = 1 - w0 - w1
@@ -245,35 +283,70 @@ def check(project_dir: str | Path) -> dict:
         pts_b = kn5.get(b, [])
         if not pts_b:
             continue
-        colmin: dict = defaultdict(lambda: 1e9)
+        # keep the ACTUAL coords of each column's lowest vert — testing at the quantized column
+        # center (up to 0.75 m away) reads phantom floats past drape lips (the audit-G lesson).
+        colmin: dict = {}
         for x, y, z in pts_b:
             k = (round(x / 1.5), round(z / 1.5))
-            colmin[k] = min(colmin[k], y)
+            if k not in colmin or y < colmin[k][0]:
+                colmin[k] = (y, x, z)
         feet = []
-        for (kx, kz), base in colmin.items():
+        for (kx, kz), (base, bx2, bz2) in colmin.items():
             lower_neighbor = any(
-                colmin.get((kx + di, kz + dj), 1e9) < base - 0.8
+                colmin.get((kx + di, kz + dj), (1e9,))[0] < base - 0.8
                 for di in (-2, -1, 0, 1, 2) for dj in (-2, -1, 0, 1, 2))
             if not lower_neighbor:
-                feet.append((kx * 1.5, base, kz * 1.5))
-        gaps2, nog = [], 0
+                feet.append((bx2, base, bz2))
+        # per-foot gaps, then cluster into OBJECTS (a 4 m barrier on a sidewalk lip is seated on
+        # its inboard edge with honest daylight under the outboard overhang — real installations
+        # look exactly like that). An object floats only when its BEST-SUPPORTED foot has a gap:
+        # that is what a driver sees as hovering.
+        foot_gaps = []
+        nog = 0
         for x, base, z in feet:
+            if b in ("1WALL", "FENCEWOOD") and on_bridge_span(x, z):
+                continue        # bridge railing over the creek/underpass — floating is its function
             g2 = tri_surf(x, z, base)
             if g2 is None:
                 nog += 1
             else:
-                gaps2.append(base - g2)
-        gaps2.sort()
-        n2 = len(gaps2)
-        med = gaps2[n2 // 2] if n2 else 0.0
-        p95 = gaps2[19 * n2 // 20] if n2 else 0.0
-        big = sum(1 for g2 in gaps2 if g2 > 0.35)
+                foot_gaps.append((x, z, base - g2))
+        # cluster by 4.5 m chain linkage on a coarse grid
+        cell_c = 4.5
+        cgrid: dict = defaultdict(list)
+        for i2, (x, z, g2) in enumerate(foot_gaps):
+            cgrid[(int(x // cell_c), int(z // cell_c))].append(i2)
+        seen2 = [False] * len(foot_gaps)
+        cluster_gaps = []
+        for i2 in range(len(foot_gaps)):
+            if seen2[i2]:
+                continue
+            stack = [i2]
+            seen2[i2] = True
+            best_g = foot_gaps[i2][2]
+            while stack:
+                j2 = stack.pop()
+                xj, zj, gj = foot_gaps[j2]
+                best_g = min(best_g, gj)
+                cj2, ck2 = int(xj // cell_c), int(zj // cell_c)
+                for di in (-1, 0, 1):
+                    for dj in (-1, 0, 1):
+                        for k2 in cgrid.get((cj2 + di, ck2 + dj), ()):
+                            if not seen2[k2] and (foot_gaps[k2][0] - xj) ** 2 + (foot_gaps[k2][1] - zj) ** 2 <= cell_c ** 2:
+                                seen2[k2] = True
+                                stack.append(k2)
+            cluster_gaps.append(best_g)
+        cluster_gaps.sort()
+        n2 = len(cluster_gaps)
+        med = cluster_gaps[n2 // 2] if n2 else 0.0
+        p95 = cluster_gaps[19 * n2 // 20] if n2 else 0.0
+        big = sum(1 for g2 in cluster_gaps if g2 > 0.30)
         bigf = big / max(1, n2)
-        nogf = nog / max(1, n2 + nog)
-        print(f"  {label:9s} feet {n2+nog:5d}: no-ground {100*nogf:4.1f}%  gap median {med:+.2f}  "
-              f"p95 {p95:+.2f}  floating>0.35m {big} ({100*bigf:.1f}%)")
-        if med > 0.25 or p95 > 0.5 or bigf > 0.01 or nogf > 0.10:
-            fails.append(f"{label}: median {med:.2f} p95 {p95:.2f} floating {100*bigf:.1f}%")
+        nogf = nog / max(1, len(foot_gaps) + nog)
+        print(f"  {label:9s} objects {n2:5d}: no-ground {100*nogf:4.1f}%  seat-gap median {med:+.2f}  "
+              f"p95 {p95:+.2f}  hovering>0.3m {big} ({100*bigf:.1f}%)")
+        if med > 0.2 or p95 > 0.4 or bigf > 0.01 or nogf > 0.10:
+            fails.append(f"{label}: median {med:.2f} p95 {p95:.2f} hovering {100*bigf:.1f}%")
 
     # LAMP INTEGRITY: every lens cluster (LIGHTS) must have a mast (LIGHTPOST) under it that reaches
     # it — an orphan head floats in the sky AND its clustered CSP light becomes a mid-air floodlight
