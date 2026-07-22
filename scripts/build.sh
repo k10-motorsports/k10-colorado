@@ -81,9 +81,17 @@ active env     &&   run drive   "$PY" -m scripts.geometry.drive_test "$PROJ"
 active env     &&   run audit   "$PY" -m scripts.geometry.audit_mesh "$PROJ"
 
 if active blend || active kn5; then
-  BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed
-  active blend && run blend "$BLENDER" --background --python scripts/ac/build_kn5.py -- "$PROJ"
-  active kn5   && run kn5   "$BLENDER" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ"
+  if [[ "${KN5_WRITER:-blender}" == "native" ]]; then
+    # NATIVE PATH (KN5_WRITER=native): write the kn5 straight from the audited OBJs with
+    # scripts/ac/kn5_write.py — no Blender import/weld/yaw/exporter between the geometry the gates
+    # measure and the bytes the driver loads. Fidelity reads 0.00 m by construction. No .blend is
+    # produced (use the default path when a hand-editable scene is needed).
+    active kn5 && run kn5 "$PY" -m scripts.ac.kn5_write "$PROJ"
+  else
+    BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed
+    active blend && run blend "$BLENDER" --background --python scripts/ac/build_kn5.py -- "$PROJ"
+    active kn5   && run kn5   "$BLENDER" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ"
+  fi
   # Gate: assert the exported kn5 is actually drivable (no dup meshes, drivable surfaces face-up, spawns
   # on the road) — every past fall-through, encoded as a check. A failure aborts BEFORE packaging/release.
   active kn5   && run verify "$PY" -m scripts.ac.verify_kn5 "$PROJ"
