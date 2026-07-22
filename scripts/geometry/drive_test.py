@@ -299,10 +299,22 @@ def run(project_dir: str | Path) -> dict:
                 else:
                     miss_run = 0
                 if ey is not None and prev_y is not None and prev_y - ey > 0.12 and off > we - 0.5:
-                    # 0.12 m = a tall curb, the most a real car survives at speed. 0.30 gated
-                    # green on car-destroyers ("a track for a video game car").
+                    # 0.12 m = a tall curb, the most a real car survives at speed. A drop BEHIND a
+                    # barrier/guard wall is GUARDED (the car never reaches it — that's the wall's
+                    # job, per the construction research: stone parapets at every drop > 2 m on
+                    # the real Lariat). Unguarded car-destroyer drops in the band fail — they mark
+                    # exactly where the four-condition selector must place walls.
+                    guarded = False
+                    for _wo in (off - 2.0, off - 1.0, off - 0.5):
+                        if _wo <= we - 0.5:
+                            break
+                        _wx, _wz = x0 + nxe * _wo * sgn, z0 + nze * _wo * sgn
+                        _wy, _wown = surface.top_at(_wx, _wz, y0 + 0.5, 2.5)
+                        if _wown is not None and str(_wown).upper().startswith("1WALL"):
+                            guarded = True
+                            break
                     excursions.append((round(s2, 1), round(off * sgn, 2), round(prev_y - ey, 2),
-                                       in_band))
+                                       in_band and not guarded))
                 if ey is not None:
                     prev_y = ey
                 off += 0.5
