@@ -102,8 +102,9 @@ def build(track_dir: Path) -> Path:
             print(f"[build_kn5] smooth-shaded '{ob.name}' ({len(ob.data.vertices)} positions) to fit "
                   f"the 65,535 render-vertex limit")
         if len(ob.data.vertices) > 65535:
-            print(f"[build_kn5] WARNING: '{ob.name}' has {len(ob.data.vertices)} positions (> 65535) "
-                  f"— needs splitting or decimation before re-export.")
+            raise SystemExit(f"[build_kn5] FATAL: '{ob.name}' has {len(ob.data.vertices)} positions "
+                             f"(> 65535) — AC silently drops over-cap meshes (the invisible-forest "
+                             f"bug). Route this group through split_mesh_under_cap. Refusing to export.")
 
     # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.

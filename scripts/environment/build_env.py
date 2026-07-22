@@ -789,6 +789,82 @@ def build(project_dir: str | Path) -> dict:
             nbush += 1
     bushes = _merge(bush_meshes)
 
+    # --- prop modules (Kevin's pack): lamp post swap + ranch fences + pylon runs ---
+    from scripts.environment import props as props_mod
+    _models = Path(__file__).resolve().parents[2] / "assets" / "models"
+    _lamp_module = None
+    if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
+        _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
+    fences_cfg = scn.get("fences", [])
+    ranch_fences = {"vertices": [], "uvs": [], "tris": []}
+    if fences_cfg and (_models / "ranch_fence_panel.obj").exists():
+        _fmod = props_mod.load_module(_models / "ranch_fence_panel.obj")
+        ranch_fences = props_mod.instance_line(loop, _fmod, ranges=fences_cfg, widths_m=widths,
+                                               ground=ground_y, module_len=1.72)
+        print(f"  ranch fences: {len(ranch_fences['vertices'])} verts over {len(fences_cfg)} ranges")
+    pylons_cfg = scn.get("pylons", [])
+    pylon_line = {"vertices": [], "uvs": [], "tris": []}
+    if pylons_cfg and (_models / "pylon.obj").exists():
+        _pmod = props_mod.load_module(_models / "pylon.obj")
+        pylon_line = props_mod.instance_line(loop, _pmod, ranges=pylons_cfg, widths_m=widths,
+                                             ground=ground_y, module_len=134.0)
+        print(f"  pylon runs: {len(pylon_line['vertices'])} verts over {len(pylons_cfg)} ranges")
+
+    # --- euro road signs (scenery.road_signs): sharp-turn arrows at warning-barrier entries +
+    #     config-listed speed discs. One EUROSIGN atlas material; galvanized SIGNPOST posts. ---
+    rs_cfg = scn.get("road_signs", {}) or {}
+    sign_plates = {"vertices": [], "uvs": [], "tris": []}
+    sign_posts2 = {"vertices": [], "uvs": [], "tris": []}
+    if rs_cfg.get("enabled"):
+        def _euro_sign(x, z, face_i, face_dirx, face_dirz):
+            gy2 = ground_y(x, z)
+            V, U, T = sign_plates["vertices"], sign_plates["uvs"], sign_plates["tris"]
+            px2, pz2 = -face_dirz, face_dirx          # plate right vector
+            r = 0.45
+            cy = gy2 + 2.2
+            b = len(V)
+            for sx2, sy2 in ((-r, -r), (r, -r), (r, r), (-r, r)):
+                V.append((x + px2 * sx2, cy + sy2, z + pz2 * sx2))
+            u0, v0 = (face_i % 2) * 0.5, 1.0 - (face_i // 2 + 1) * 0.5
+            U.extend([(u0, v0), (u0 + 0.5, v0), (u0 + 0.5, v0 + 0.5), (u0, v0 + 0.5)])
+            T.extend([(b, b + 1, b + 2), (b, b + 2, b + 3), (b, b + 2, b + 1), (b, b + 3, b + 2)])
+            PV, PT = sign_posts2["vertices"], sign_posts2["tris"]
+            pb = len(PV)
+            for dx2, dz2 in ((-0.04, -0.04), (0.04, -0.04), (0.04, 0.04), (-0.04, 0.04)):
+                PV.append((x + dx2, gy2, z + dz2))
+                PV.append((x + dx2, gy2 + 2.65, z + dz2))
+            for k2 in range(4):
+                a2, b2 = 2 * k2, 2 * ((k2 + 1) % 4)
+                PT.extend([(pb + a2, pb + b2, pb + b2 + 1), (pb + a2, pb + b2 + 1, pb + a2 + 1)])
+            sign_posts2.setdefault("uvs", []).extend([(0.0, 0.0)] * 8)
+        from scripts.geometry import kerbs as _kerbs
+        _bar, _spots = _kerbs.warning_barriers(loop, widths)
+        for _sp in _spots:
+            i2 = max(1, _sp["start_idx"] - 8)
+            x2, _, z2 = loop[i2]
+            a2, b3 = loop[i2 - 1], loop[min(len(loop) - 1, i2 + 1)]
+            tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
+            L2 = math.hypot(tx2, tz2) or 1e-9
+            tx2, tz2 = tx2 / L2, tz2 / L2
+            nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
+            sx3, sz3 = x2 + nx2 * (widths[i2] / 2 + 2.2), z2 + nz2 * (widths[i2] / 2 + 2.2)
+            if not on_surface(sx3, sz3):    # verge furniture: tight on-pavement test, not the 4 m foliage margin
+                _euro_sign(sx3, sz3, 2, -tx2, -tz2)          # sharp-turn arrow faces traffic
+        _sst = [0.0]
+        for i2 in range(1, len(loop)):
+            _sst.append(_sst[-1] + math.hypot(loop[i2][0] - loop[i2 - 1][0], loop[i2][2] - loop[i2 - 1][2]))
+        for sp2 in rs_cfg.get("speed_signs", []):
+            i2 = min(range(len(loop)), key=lambda k3: abs(_sst[k3] - float(sp2["station_m"])))
+            x2, _, z2 = loop[i2]
+            a2, b3 = loop[max(0, i2 - 1)], loop[min(len(loop) - 1, i2 + 1)]
+            tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
+            L2 = math.hypot(tx2, tz2) or 1e-9
+            tx2, tz2 = tx2 / L2, tz2 / L2
+            sx3, sz3 = x2 - tz2 * -(widths[i2] / 2 + 2.2), z2 + tx2 * -(widths[i2] / 2 + 2.2)
+            if not on_surface(sx3, sz3):
+                _euro_sign(sx3, sz3, int(sp2.get("face", 0)), -tx2, -tz2)
+        print(f"  euro signs: {len(sign_plates['vertices']) // 4} placed")
+
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     # Split geometry: the mast (LIGHTPOST, dark) and the lamp head (LIGHTS, emissive) are separate meshes
     # so only the head glows at night — not the whole 9 m stick (the old single-quad LIGHTS defect).
@@ -815,6 +891,17 @@ def build(project_dir: str | Path) -> dict:
             if y - gy_pole > 4.0:      # verge falls away on a fill — a pole planted mid-embankment
                 continue               # puts its cobra head at windshield height over the lane; skip
             shaft, lamphead = _streetlight(px, gy_pole, pz, nx, nz)   # arm reaches +n back over the lane
+            if _lamp_module is not None:
+                # Kevin's black lamp model as the visible post (LIGHTPOST); the tiny LIGHTS head
+                # box stays — CSP clusters per-lamp lights and glows from it.
+                base2 = {"vertices": [], "uvs": [], "tris": []}
+                tl2 = math.hypot(nx, nz) or 1e-9
+                txl, tzl = nz / tl2, -nx / tl2
+                for mx, my, mz in _lamp_module["vertices"]:
+                    base2["vertices"].append((px + txl * mz + nx * mx, gy_pole + my, pz + tzl * mz + nz * mx))
+                base2["uvs"] = list(_lamp_module["uvs"])
+                base2["tris"] = list(_lamp_module["tris"])
+                shaft = base2
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
             nlights += 1
@@ -977,6 +1064,7 @@ def build(project_dir: str | Path) -> dict:
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes,
+                   ranch_fences, pylon_line, sign_plates, sign_posts2,
                    lightposts, lightheads,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
@@ -993,7 +1081,8 @@ def build(project_dir: str | Path) -> dict:
                # go"). Prefix-matched names (CONIFER_a...) keep materials/GrassFX behavior.
                *split_mesh_under_cap(tree_mat, "grass", trees),
                *split_mesh_under_cap("BUSHES", "grass", bushes),
-               ("LIGHTPOST", "road", lightposts), ("LIGHTS", "road", lightheads),
+               *split_mesh_under_cap("LIGHTPOST", "road", lightposts),
+               *split_mesh_under_cap("LIGHTS", "road", lightheads),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),

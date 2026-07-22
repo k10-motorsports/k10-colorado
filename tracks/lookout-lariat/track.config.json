@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -77,7 +77,51 @@
     "signs": {
       "enabled": false
     },
-    "fill_bias": 2.4
+    "fill_bias": 2.4,
+    "lamp_model": true,
+    "fences": [
+      {
+        "start_m": 7600,
+        "end_m": 10200,
+        "side": 0,
+        "offset_m": 8.0,
+        "_doc": "summit plateau ranch land - split-rail both sides at the right-of-way line (Kevin: off the road a bit like irl)"
+      },
+      {
+        "start_m": 12500,
+        "end_m": 14500,
+        "side": 1,
+        "offset_m": 9.0,
+        "_doc": "Mount Vernon pastures, uphill side"
+      }
+    ],
+    "pylons": [
+      {
+        "start_m": 20600,
+        "end_m": 24000,
+        "side": -1,
+        "offset_m": 55.0,
+        "_doc": "distribution line paralleling the plains legs, well off the road; module carries its own 134 m cable span (tower-only module; cables strung in the Blender pass)"
+      }
+    ],
+    "road_signs": {
+      "enabled": true,
+      "speed_signs": [
+        {
+          "station_m": 700,
+          "face": 0
+        },
+        {
+          "station_m": 12800,
+          "face": 1
+        },
+        {
+          "station_m": 21200,
+          "face": 1
+        }
+      ],
+      "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
+    }
   },
   "origin": "centroid",
   "surfaces": {

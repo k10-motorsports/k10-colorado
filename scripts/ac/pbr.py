@@ -33,6 +33,8 @@ TEXTURES = {
     "STUCCO":  ("stucco_diffuse.jpg",  "stucco_normal.jpg",  0.88, (0.62, 0.32, 0.28, 1), 0.0, False),  # painted stucco (mined Hamburg) — building variety
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
     "1WALL":   ("concrete_barrier_diffuse.png", "concrete_barrier_normal.png", 0.85, (0.72, 0.72, 0.70, 1), 0.0, False),  # Kevin's 4 m concrete barrier modules (props.concrete_barriers)
+    "FENCEWOOD": ("ranch_fence_diffuse.png", "ranch_fence_normal.png", 0.9, (0.45, 0.35, 0.25, 1), 0.0, False),  # split-rail ranch fence panels (scenery.fences, right-of-way line)
+    "EUROSIGN": ("eurosign_atlas.png", None, 0.5, (0.85, 0.85, 0.85, 1), 0.1, False),  # circular sign faces, alpha-cut (scenery.road_signs)
     "CONTAINER": ("container_diffuse.jpg", "container_normal.jpg", 0.70, (0.55, 0.30, 0.26, 1), 0.0, False),  # mined Hamburg shipping-container stacks (warehouse yards)
     "CHAINLINK": ("chainlink_diffuse.png", None, 0.60, (0.55, 0.56, 0.58, 1), 0.30, False),  # procedural alpha-cutout chain-link (warehouse yard fences)
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
@@ -56,7 +58,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS"}
+BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS", "EUROSIGN"}
 
 
 def texture_dir() -> Path:

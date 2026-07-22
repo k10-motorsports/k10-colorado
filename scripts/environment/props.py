@@ -78,3 +78,43 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
             out["uvs"].extend(module["uvs"])
             out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
     return out
+
+
+def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=None,
+                  ground=None, module_len: float = 1.7, default_offset: float = 8.0) -> dict:
+    """Instance a module continuously along config-declared lap ranges — ranch fences at the
+    right-of-way line, pylon runs across the plains. Each instance drapes to ``ground(x,z)`` so
+    runs follow the terrain. ranges: [{start_m, end_m, side (+1 left/-1 right/0 both), offset_m}]."""
+    pts = centerline_m
+    n = len(pts)
+    st = [0.0]
+    for i in range(1, n):
+        st.append(st[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+    out = {"vertices": [], "uvs": [], "tris": []}
+    for rg in ranges:
+        s0, s1 = float(rg["start_m"]), float(rg["end_m"])
+        off = float(rg.get("offset_m", default_offset))
+        sides = (1.0, -1.0) if rg.get("side", 0) == 0 else (float(rg["side"]),)
+        for side in sides:
+            next_at = s0
+            for i in range(1, n):
+                if st[i] < next_at:
+                    continue
+                if st[i] > s1:
+                    break
+                next_at += module_len
+                x, y, z = pts[i]
+                tx = pts[min(i + 1, n - 1)][0] - pts[i - 1][0]
+                tz = pts[min(i + 1, n - 1)][2] - pts[i - 1][2]
+                L = math.hypot(tx, tz) or 1e-9
+                tx, tz = tx / L, tz / L
+                nx, nz = -tz * side, tx * side
+                w_half = (widths_m[i] / 2.0 if widths_m else 0.0)
+                bx, bz = x + nx * (w_half + off), z + nz * (w_half + off)
+                by = ground(bx, bz) if ground else y
+                base = len(out["vertices"])
+                for mx, my, mz in module["vertices"]:
+                    out["vertices"].append((bx + tx * mz + nx * mx, by + my, bz + tz * mz + nz * mx))
+                out["uvs"].extend(module["uvs"])
+                out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
+    return out
