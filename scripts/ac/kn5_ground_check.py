@@ -62,9 +62,11 @@ def check(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     cfg = json.loads((project_dir / "track.config.json").read_text())
     slug = cfg["slug"]
-    kn5p = project_dir / "build" / slug / f"{slug}.kn5"
+    # prefer the FRESH export (build/<slug>.kn5); build/<slug>/<slug>.kn5 is only refreshed at pack
+    # time and gating on it compares OBJs against the PREVIOUS build.
+    kn5p = project_dir / "build" / f"{slug}.kn5"
     if not kn5p.exists():
-        kn5p = project_dir / "build" / f"{slug}.kn5"
+        kn5p = project_dir / "build" / slug / f"{slug}.kn5"
     yaw = math.radians(float(cfg.get("true_north_rotation_deg") or 0.0))
 
     obj = _obj_verts(project_dir / "data" / "track.obj")
