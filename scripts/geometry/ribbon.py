@@ -429,7 +429,9 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
     # node up-slope bridges its triangle back over the pavement (195 wheel-path ground-throughs on
     # the Lariat at reach=11 vs 13.4 m cells — the drive test sees the faces, not the vertices).
     if grid_spacing is not None:
-        reach = max(reach, grid_spacing * 1.5 + 0.5)
+        # 2.2x: at bridge-deck ends the fill-grading exemption leaves natural-high nodes close by;
+        # 1.5x let one coarse triangle bridge over the deck (grass mid-lane at SC station 6032).
+        reach = max(reach, grid_spacing * 2.2 + 0.5)
     cell = max(cell, reach)
     buckets: dict[tuple[int, int], list[Vertex]] = defaultdict(list)
     for x, y, z in road_verts:

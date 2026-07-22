@@ -50,6 +50,34 @@ def smooth_open(z: list[float], window: int) -> list[float]:
     return out
 
 
+def snap_to_ground(z: list[float], *, spacing_m: float, grade_cap_pct: float,
+                   median_m: float = MEDIAN_WINDOW_M) -> list[float]:
+    """ROAD TOUCHING GROUND TAKES PRECEDENCE (Kevin). The old profile (median + wide double mean)
+    floated ~1 m over every real dip — the DEM measured the actual road surface, and smoothing away
+    its contact with the ground is what left the deck hovering with the world shaped 1 m beneath it.
+
+    New contract: despike (median — kills canopy/underpass notches), ONE light 9 m mean for DEM
+    surface noise, then a grade limiter that only CUTS: forward+backward min-clamp at the grade cap
+    pulls crests DOWN into the hill (a cut, like real construction) and never lifts the line off
+    the ground. Result is at-or-below the despiked terrain everywhere: floats are impossible by
+    construction; drivability is the drive test's job to confirm."""
+    n = len(z)
+    if n == 0:
+        return []
+    mw = max(3, round(median_m / spacing_m)) | 1
+    h = mw // 2
+    out = [sorted(z[(i + k) % n] for k in range(-h, h + 1))[h] for i in range(n)]
+    out = smooth_closed(out, max(3, round(9.0 / spacing_m)) | 1)
+    step = grade_cap_pct / 100.0 * spacing_m
+    for _ in range(2):                     # closed loop: two wraps converge the clamp
+        for i in range(1, n):
+            out[i] = min(out[i], out[i - 1] + step)
+        for i in range(n - 2, -1, -1):
+            out[i] = min(out[i], out[i + 1] + step)
+        out[0] = min(out[0], out[-1] + step)
+    return out
+
+
 def smooth_profile(z: list[float], *, spacing_m: float, median_m: float = MEDIAN_WINDOW_M,
                    mean_m: float = SMOOTH_WINDOW_M, passes: int = SMOOTH_PASSES) -> list[float]:
     """Turn raw sampled elevations into a launch-free racing-line profile (closed loop).
@@ -126,7 +154,10 @@ def build(project_dir: str | Path) -> dict:
     coords = [(lon, lat) for lon, lat in full["geometry"]["coordinates"]]
 
     z_raw = usgs_3dep.sample_points(coords)
-    z_smooth = smooth_profile(z_raw, spacing_m=CENTERLINE_SPACING_M)
+    import json as _json
+    _cfgj = _json.loads((Path(project_dir) / "track.config.json").read_text())
+    _cap_pct = float((_cfgj.get("road_profile", {}) or {}).get("max_grade_pct", 9.0))
+    z_smooth = snap_to_ground(z_raw, spacing_m=CENTERLINE_SPACING_M, grade_cap_pct=_cap_pct)
 
     dist = [0.0]
     for i in range(1, len(coords)):

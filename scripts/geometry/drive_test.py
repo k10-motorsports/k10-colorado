@@ -296,6 +296,36 @@ def run(project_dir: str | Path) -> dict:
                 off += 0.5
     problems["excursion_drops"] = excursions
 
+    # REPLICATION ERROR (Kevin: "i want a realistic road. this exists so we have to be able to
+    # replicate it"): the lidar measured the ACTUAL road bench — the built deck must match it.
+    # |built - raw measured| along the lap, declared bridges exempt. This is the number that says
+    # how far the pipeline strayed from the real mountain.
+    rep = []
+    ep = data / "centerline.elevation.json"
+    if ep.exists():
+        try:
+            ej = json.loads(ep.read_text())
+            zr = ej.get("z_raw_m") or []
+            e0 = 0.0
+            _lc9 = data / "centerline.local.json"
+            if _lc9.exists():
+                e0 = float(json.loads(_lc9.read_text()).get("origin", {}).get("elev_m", 0.0))
+            if zr and len(zr) >= 10:
+                m2 = min(len(zr), len(pts))
+                stq = 0.0
+                for i in range(1, m2):
+                    stq += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+                    if any(a <= stq <= b for a, b in spans):
+                        continue
+                    rep.append(abs(pts[i][1] - (zr[i] - e0)))
+        except Exception:
+            pass
+    if rep:
+        rep.sort()
+        nR = len(rep)
+        problems["replication"] = {"median": round(rep[nR // 2], 2), "p95": round(rep[19 * nR // 20], 2),
+                                   "max": round(rep[-1], 2)}
+
     # collapse obstruction runs (one wall = many stations)
     per_km = lap / 1000
     report = {
@@ -307,6 +337,7 @@ def run(project_dir: str | Path) -> dict:
         "kinks_per_km": round(len(problems["kinks"]) / per_km, 2),
         "obstruction_stations": len(set(s for s, _ in problems["obstructions"])),
         "daylight_gaps": len(problems["daylight_gaps"]),
+        "replication_vs_measured": problems.get("replication"),
         "excursion_drops": sum(1 for r in problems["excursion_drops"] if r[3]),
         "excursion_far_ledges": sum(1 for r in problems["excursion_drops"] if not r[3]),
         "worst_excursions": sorted(problems["excursion_drops"], key=lambda r: -r[2])[:12],
@@ -340,6 +371,9 @@ def run(project_dir: str | Path) -> dict:
     print(f"  bumps >{STEP_BUMP_M*100:.1f} cm /km      : {report['steps_per_km']}")
     print(f"  slope kinks >{KINK_PCT}%% /km   : {report['kinks_per_km']}")
     print(f"  daylight gaps at edges : {report['daylight_gaps']}")
+    if report.get("replication_vs_measured"):
+        _rp = report["replication_vs_measured"]
+        print(f"  replication vs measured road : median {_rp['median']} m  p95 {_rp['p95']} m  max {_rp['max']} m")
     print(f"  off-road excursion drops>20cm : {report['excursion_drops']}"
           f"  (far flare ledges, reported: {report['excursion_far_ledges']})")
     for r in report["worst_excursions"][:6]:

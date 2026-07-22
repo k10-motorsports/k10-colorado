@@ -810,12 +810,14 @@ def build(project_dir: str | Path) -> dict:
             # overhang 0.6 m of daylight over the grass beyond it).
             _drops5 = []
             _sups5 = []
+            _fit5 = []                            # (x, z, required dy) for the plane fit
             for _v5 in _blk:
                 if _v5[1] > _base5 + 0.25:
                     continue                     # not a base vert
                 _g5v = _edge_surface_y(_v5[0], _v5[2], _v5[1])
                 if _g5v is not None:
                     _drops5.append(_g5v - _v5[1])
+                    _fit5.append((_v5[0], _v5[2], _g5v - _v5[1]))
                 # SUPPORT view (gate semantics): highest walkable at/below the vert
                 _g5s = _edge_surface_y(_v5[0], _v5[2], None)
                 if _g5s is not None and _g5s <= _v5[1] + 0.6:
@@ -832,7 +834,29 @@ def build(project_dir: str | Path) -> dict:
                     _dy5 -= _hover5 - 0.02
             if abs(_dy5) > 3.5:
                 continue
-            if abs(_dy5) > 1e-4:
+            # PLANE FIT (Kevin: barriers 75% proud / 25% buried): a level module on cambered
+            # pavement shows daylight at one end and buries the other. Fit dy ~ a + b*x + c*z over
+            # the base verts and TILT the module onto the local surface (clamped to 8% so modules
+            # never lean drunkenly). Falls back to the rigid drop when the fit is degenerate.
+            _a5 = _b5 = _c5 = None
+            if len(_fit5) >= 8:
+                _mx5 = sum(f[0] for f in _fit5) / len(_fit5)
+                _mz5 = sum(f[1] for f in _fit5) / len(_fit5)
+                _sxx = sum((f[0] - _mx5) ** 2 for f in _fit5)
+                _szz = sum((f[1] - _mz5) ** 2 for f in _fit5)
+                _sxy = sum((f[0] - _mx5) * (f[2] - sum(g[2] for g in _fit5) / len(_fit5)) for f in _fit5)
+                _szy = sum((f[1] - _mz5) * (f[2] - sum(g[2] for g in _fit5) / len(_fit5)) for f in _fit5)
+                if _sxx > 1e-6 and _szz > 1e-6:
+                    _b5 = max(-0.08, min(0.08, _sxy / _sxx))
+                    _c5 = max(-0.08, min(0.08, _szy / _szz))
+                    _mean_dy5 = sum(f[2] for f in _fit5) / len(_fit5)
+                    _a5 = _mean_dy5 + 0.02
+            if _a5 is not None:
+                for _i5 in range(_s5, _s5 + len(_blk)):
+                    _x5, _y5, _z5 = _bv5[_i5]
+                    _bv5[_i5] = (_x5, _y5 + _a5 + _b5 * (_x5 - _mx5) + _c5 * (_z5 - _mz5), _z5)
+                _reseated += 1
+            elif abs(_dy5) > 1e-4:
                 for _i5 in range(_s5, _s5 + len(_blk)):
                     _x5, _y5, _z5 = _bv5[_i5]
                     _bv5[_i5] = (_x5, _y5 + _dy5, _z5)
