@@ -385,6 +385,27 @@ def build(project_dir: str | Path) -> dict:
     # into the centerline Y so the terrain grade, the grass conform and the dummies all follow it.
     centerline, dip_of, bank_at, profile_active = finished_centerline(raw_pts, cfg_raw, mirror_x=mirror_x)
     bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
+    # MEASURED cross-slope (data/crossfall.json, from lateral 1 m-DEM pairs): real superelevation,
+    # dead-banded + capped at 6% so the car never launches. Only when the track has no hand-authored
+    # cambers (PPIR's oval banking stays authoritative). Sign: file is +ve = left-edge-up in the
+    # UNMIRRORED frame; mirroring flips handedness, so flip the sign with it.
+    cf_path = data / "crossfall.json"
+    if bnk is None and cf_path.exists():
+        _cf = json.loads(cf_path.read_text())
+        _cst, _cbk = _cf["station_m"], _cf["bank_rad"]
+        _sgn = -1.0 if mirror_x else 1.0
+
+        def bnk(station_m, _cst=_cst, _cbk=_cbk, _sgn=_sgn):
+            import bisect
+            k = bisect.bisect_left(_cst, station_m)
+            if k <= 0:
+                return _sgn * _cbk[0]
+            if k >= len(_cst):
+                return _sgn * _cbk[-1]
+            t2 = (station_m - _cst[k - 1]) / max(1e-9, _cst[k] - _cst[k - 1])
+            return _sgn * (_cbk[k - 1] + t2 * (_cbk[k] - _cbk[k - 1]))
+        print(f"  crossfall: measured camber active ({_cf.get('banked_pct')}% of lap, "
+              f"max {_cf.get('max_bank_pct')}% — deadband {_cf.get('deadband')} cap {_cf.get('cap')})")
 
     # INTERIOR-GRID connector roads (the 2nd layout's extra streets, from connectors.local.json) — they
     # share this one mesh, laid flat asphalt (the corkscrew is main-loop only). Mirror to the same frame.

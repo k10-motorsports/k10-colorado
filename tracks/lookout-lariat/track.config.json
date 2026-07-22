@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -52,7 +52,8 @@
     "_doc": "Elevation is 100% real USGS 3DEP along the route \u2014 ~1,300 ft from the 19th St gates to the Buffalo Bill summit (~7,375 ft). No hand-authored dips/cambers; the mountain provides them. max_grade_pct 16 clears the real steepest pitch (Paradise Rd -14.5%) \u2014 the default 6% cap flattened the descent and floated the road metres above the canyon floor.",
     "max_grade_pct": 16.0,
     "dips": [],
-    "cambers": []
+    "cambers": [],
+    "_crossfall_doc": "Camber is MEASURED (data/crossfall.json): lateral 1 m-DEM pairs -> cross-slope, median+mean smoothed, 1.5% deadband (flat where mild - not everywhere), capped 6% (~3.4 deg, no launching). 61.7% of the lap banked, mountain sections tilt into the hillside."
   },
   "scenery": {
     "_doc": "Foothills pine forest: TurboSquid-derived pine sprite atlas (rendered imagery only, mesh never ships), packed HARD near the road (step 7 m, 4/station/side, bias 2.4 -> most trees within ~25 m of the verge), grass ground + GrassFX. Streetlights ON per Kevin: yellow, 96 m, dim wide pools.",
