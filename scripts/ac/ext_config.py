@@ -142,6 +142,12 @@ def generate(project_dir: str | Path) -> Path:
         sl_i = sl.get("intensity", 5.0)
         sl_r = sl.get("range_m", 24.0)
         sl_e = sl.get("emissive", 0.35)
+        # pool shaping — CSP RANGE scales deposited energy, not just reach: widening range without
+        # cutting intensity saturates the pool core white (v0.7.4 lesson). Wide+dim needs all four.
+        sl_spot = sl.get("spot_deg", 124)
+        sl_sharp = sl.get("spot_sharpness", 0.3)
+        sl_grad = sl.get("range_gradient_offset", 0.2)
+        sl_spec = sl.get("specular_mult", 0.6)
         sl_c = sl.get("color", [1.0, 0.82, 0.55])
         sl_ec = sl.get("emissive_color", [255, 209, 166])
         out += ["; --- Streetlights (per-lamp; see dead-lights notes in ext_config.py) ---------",
@@ -169,9 +175,10 @@ def generate(project_dir: str | Path) -> Path:
                         "DIRECTION = 0, -1, 0",
                         f"COLOR = {c255[0]}, {c255[1]}, {c255[2]}, {sl_i}",
                         "COLOR_OFF = 0, 0, 0, 0",
-                        "SPOT = 124", "SPOT_SHARPNESS = 0.3",
-                        f"RANGE = {sl_r}", "RANGE_GRADIENT_OFFSET = 0.2",
-                        "FADE_AT = 220", "FADE_SMOOTH = 40",
+                        f"SPOT = {sl_spot}", f"SPOT_SHARPNESS = {sl_sharp}",
+                        f"RANGE = {sl_r}", f"RANGE_GRADIENT_OFFSET = {sl_grad}",
+                        f"SPECULAR_MULT = {sl_spec}",
+                        "FADE_AT = 450", "FADE_SMOOTH = 80",
                         "CONDITION = NIGHT_SMOOTH", ""]
             print(f"  [ext_config] {len(heads)} per-lamp [LIGHT_N] entries clustered from the kn5")
         else:

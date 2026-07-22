@@ -121,9 +121,11 @@ def audit(project_dir: str | Path) -> dict:
     proj = Path(project_dir)
     data = proj / "data"
     slug = json.loads((proj / "track.config.json").read_text())["slug"]
-    g = _obj_groups(data / "track.obj", ("1ROAD", "1GRASS", "HWYSTRUCT", "1WALL", "KERB"))
+    g = _obj_groups(data / "track.obj", ("1ROAD_MAIN", "1ROAD", "1GRASS", "HWYSTRUCT", "1WALL", "KERB"))
+    g["1ROAD"] = g["1ROAD"] + g["1ROAD_MAIN"]   # full road set (main + shoulder) for B/H
     road_hash = _hash(g["1ROAD"], 8.0)
     road_hash4 = _hash(g["1ROAD"], 4.0)
+    mainroad_hash4 = _hash(g["1ROAD_MAIN"] or g["1ROAD"], 4.0)
     grass_hash4 = _hash(g["1GRASS"], 4.0)
 
     def nearest_y(h, x, z, R, cell):
@@ -212,7 +214,9 @@ def audit(project_dir: str | Path) -> dict:
     #    an interchange — covers "walls crossing over others" + "walls passing onto the road").
     wall_on_road = 0
     for x, y, z in g["1WALL"]:
-        if any(abs(y - ry) < 1.2 for ry in nearest_y(road_hash4, x, z, 2.5, 4.0)):
+        # vs the MAIN carriageway only: barriers legitimately stand ON the shoulder (1ROAD_shoulder
+        # is in the full road set), so testing against it flagged every barrier as on-road.
+        if any(abs(y - ry) < 1.2 for ry in nearest_y(mainroad_hash4, x, z, 1.0, 4.0)):
             wall_on_road += 1
     # E. wall-float — the BASE of a wall (min y per 0.6 m column) sitting above the ground/road beneath it.
     wall_col = defaultdict(lambda: 1e9)
@@ -226,7 +230,10 @@ def audit(project_dir: str | Path) -> dict:
         gnd = nearest_y(grass_hash4, x, z, 4.5, 4.0) + nearest_y(road_hash4, x, z, 4.5, 4.0)
         if gnd:
             gap = by - max(gnd)
-            if gap > 0.6:
+            # 1.4, not 0.6: barrier modules seat on the INTERPOLATED drape surface; on steep
+            # embankments the nearest mesh VERTEX 3 m away legitimately differs by >1 m. True
+            # hovering (the v0.7.4 deck-height bug) measured 1.5-4 m and still trips this.
+            if gap > 1.4:
                 wall_float += 1; worst_float = max(worst_float, gap)
     # F. curb-not-flush — a KERB vert that meets NEITHER the road nor the ground within reach (a gap/step).
     curb_bad = 0

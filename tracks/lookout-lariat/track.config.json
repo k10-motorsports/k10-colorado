@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -145,10 +145,10 @@
     ],
     "grassfx": true,
     "streetlight": {
-      "_doc": "Yellow lamps (Kevin). color = thrown CSP light 0..1 rgb, emissive_color = lens glow 0..255 rgb. range_m 48 (vs 24 default): posts sit 96 m apart, so the doubled throw keeps a faint continuous ribbon between pools instead of dark gaps. intensity 2.5 + emissive 0.25: Kevin finds even the project-default 5.0 pools too bright \u2014 large, dim pools, not floodlights.",
-      "range_m": 48.0,
-      "intensity": 2.5,
-      "emissive": 0.25,
+      "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
+      "range_m": 60.0,
+      "intensity": 1.1,
+      "emissive": 0.22,
       "color": [
         1.0,
         0.85,
@@ -158,7 +158,11 @@
         255,
         220,
         60
-      ]
+      ],
+      "spot_deg": 155,
+      "spot_sharpness": 0.1,
+      "range_gradient_offset": 0.4,
+      "specular_mult": 0.35
     }
   },
   "true_north_rotation_deg": 180.0,

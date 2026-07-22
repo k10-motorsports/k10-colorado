@@ -47,8 +47,12 @@ def load_module(path: str | Path) -> dict:
 
 def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placements: list[dict],
                       module: dict, *, module_len: float = 4.04, off_extra: float = 1.6,
-                      base_sink: float = 0.05) -> dict:
-    """Stamp the barrier module end-to-end along each warning-barrier run, on the run's OUTSIDE."""
+                      base_sink: float = 0.05, surface_y=None) -> dict:
+    """Stamp the barrier module end-to-end along each warning-barrier run, on the run's OUTSIDE.
+
+    ``surface_y(x, z) -> y|None`` seats each module on the BUILT edge surface (road+shoulder tops).
+    Seating at centerline height floats the whole run wherever the verge falls away — every fill
+    and hairpin on the Lariat shipped with barriers hovering in mid-air ("everything is floating")."""
     pts = centerline_m
     n = len(pts)
     out = {"vertices": [], "uvs": [], "tris": []}
@@ -69,6 +73,18 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
             nx, nz = -tz * side, tx * side              # outward on the run's side
             off = widths_m[i] / 2.0 + off_extra
             bx, bz = x + nx * off, z + nz * off
+            if surface_y is not None:
+                sy = surface_y(bx, bz)
+                if sy is None:
+                    # retry INBOARD and MOVE the module there — taking the inboard height while
+                    # leaving the module at the outer spot hung 50 modules over the shoulder edge
+                    bx2, bz2 = x + nx * (off - 1.2), z + nz * (off - 1.2)
+                    sy = surface_y(bx2, bz2)
+                    if sy is not None:
+                        bx, bz = bx2, bz2
+                if sy is None:
+                    continue                 # nothing built under this spot — skip, never float
+                y = sy + base_sink           # seat ON the built surface (sink re-subtracted below)
             base = len(out["vertices"])
             # module: length along local Z, width X, up Y, base at y=0
             for mx, my, mz in module["vertices"]:

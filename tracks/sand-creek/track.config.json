@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -122,9 +122,14 @@
     ],
     "grassfx": true,
     "streetlight": {
-      "intensity": 2.5,
-      "emissive": 0.25,
-      "_doc": "Dim wide pools per Kevin's standing preference (the 5.0 default reads as floodlights)."
+      "intensity": 1.1,
+      "emissive": 0.22,
+      "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
+      "range_m": 60.0,
+      "spot_deg": 155,
+      "spot_sharpness": 0.1,
+      "range_gradient_offset": 0.4,
+      "specular_mult": 0.35
     }
   },
   "kerb": {

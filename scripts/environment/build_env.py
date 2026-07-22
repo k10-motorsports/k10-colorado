@@ -149,18 +149,22 @@ def _billboard(x, y, z, h=7.0, w=5.5, yaw=0.0):  # crossed tree billboards (two 
 
 
 def _billboard_cell(x, y, z, col, row, ncols, nrows, h, w, yaw=0.0):
-    """Crossed billboard mapped to one cell of a foliage atlas (ncols x nrows). V=0 (base) → bottom of
-    the cell. Used for the dry scrub bushes (one random plant per billboard). yaw varies orientation."""
+    """THREE-card star billboard (cards at 60 deg) mapped to one cell of a foliage atlas. Two crossed
+    cards read FLAT whenever the camera nears either card's plane (Kevin: "make the trees not so
+    flat — crosses or something"); three at 60 deg always presents >=2 cards at a useful angle, so
+    the canopy keeps visual volume from every direction. V=0 (base) -> bottom of the cell."""
     hw = w / 2
-    c, s = math.cos(yaw), math.sin(yaw)
-    ax, az = c * hw, s * hw
-    bx, bz = -s * hw, c * hw
-    verts = [(x - ax, y, z - az), (x + ax, y, z + az), (x + ax, y + h, z + az), (x - ax, y + h, z - az),
-             (x - bx, y, z - bz), (x + bx, y, z + bz), (x + bx, y + h, z + bz), (x - bx, y + h, z - bz)]
     u0, u1 = col / ncols, (col + 1) / ncols
     vb, vt = (nrows - 1 - row) / nrows, (nrows - row) / nrows   # bottom/top of cell (v=0 = image bottom)
-    uvs = [(u0, vb), (u1, vb), (u1, vt), (u0, vt), (u0, vb), (u1, vb), (u1, vt), (u0, vt)]
-    tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    verts, uvs, tris = [], [], []
+    for k in range(3):
+        a = yaw + k * (math.pi / 3.0)
+        cx2, sz2 = math.cos(a) * hw, math.sin(a) * hw
+        b = len(verts)
+        verts += [(x - cx2, y, z - sz2), (x + cx2, y, z + sz2),
+                  (x + cx2, y + h, z + sz2), (x - cx2, y + h, z - sz2)]
+        uvs += [(u0, vb), (u1, vb), (u1, vt), (u0, vt)]
+        tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
@@ -793,8 +797,11 @@ def build(project_dir: str | Path) -> dict:
     from scripts.environment import props as props_mod
     _models = Path(__file__).resolve().parents[2] / "assets" / "models"
     _lamp_module = None
+    _lens_module = None
     if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
         _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
+        if (_models / "lamp_lens.obj").exists():
+            _lens_module = props_mod.load_module(_models / "lamp_lens.obj")
     fences_cfg = scn.get("fences", [])
     ranch_fences = {"vertices": [], "uvs": [], "tris": []}
     if fences_cfg and (_models / "ranch_fence_panel.obj").exists():
@@ -892,8 +899,10 @@ def build(project_dir: str | Path) -> dict:
                 continue               # puts its cobra head at windshield height over the lane; skip
             shaft, lamphead = _streetlight(px, gy_pole, pz, nx, nz)   # arm reaches +n back over the lane
             if _lamp_module is not None:
-                # Kevin's black lamp model as the visible post (LIGHTPOST); the tiny LIGHTS head
-                # box stays — CSP clusters per-lamp lights and glows from it.
+                # Kevin's black lamp model as the visible post (LIGHTPOST). The old procedural head
+                # BOX is gone ("flooring boxes") — replaced by a 2 cm marker tri INSIDE the model's
+                # head: invisible in game, but the CSP per-lamp lights still cluster from the LIGHTS
+                # mesh in the kn5, so the glow comes from the pole itself with no frame math.
                 base2 = {"vertices": [], "uvs": [], "tris": []}
                 tl2 = math.hypot(nx, nz) or 1e-9
                 txl, tzl = nz / tl2, -nx / tl2
@@ -902,6 +911,17 @@ def build(project_dir: str | Path) -> dict:
                 base2["uvs"] = list(_lamp_module["uvs"])
                 base2["tris"] = list(_lamp_module["tris"])
                 shaft = base2
+                hx2, hy2, hz2 = px + nx * 1.2, gy_pole + 9.75, pz + nz * 1.2
+                if _lens_module is not None:
+                    # the model's own glass lens: glows (LIGHTS_mat ksEmissive) at ANY distance even
+                    # when CSP culls the dynamic light — why "the lights aren't all on at once" read
+                    # as broken: no visible glow beyond the fade distance. Also the cluster source.
+                    lamphead = {"vertices": [(hx2 + mx, hy2 + my, hz2 + mz)
+                                             for mx, my, mz in _lens_module["vertices"]],
+                                "uvs": list(_lens_module["uvs"]), "tris": list(_lens_module["tris"])}
+                else:
+                    lamphead = {"vertices": [(hx2, hy2, hz2), (hx2 + 0.02, hy2, hz2), (hx2, hy2 + 0.02, hz2)],
+                                "uvs": [(0, 0), (1, 0), (0, 1)], "tris": [(0, 1, 2)]}
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
             nlights += 1

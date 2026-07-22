@@ -74,10 +74,11 @@ active project && [ "$($PY -c "import json;print(json.load(open('$PROJ/track.con
                &&  run widths  "$PY" -m scripts.gps.widths_from_osm "$PROJ"
 active mesh    &&   run mesh    "$PY" -m scripts.geometry.build_mesh "$PROJ"
 active env     &&   run env     "$PY" -m scripts.environment.build_env "$PROJ"
-# Gate: the virtual DRIVE TEST (six wheel paths over the built triangles — ground-through, steps,
-# kinks, corridor obstructions). Audits check geometry classes; this checks the drive. A FAIL
-# aborts before Blender/kn5 — no more discovering it in the release.
+# Gates: the virtual DRIVE TEST (wheel paths over the built triangles) AND the mesh audit
+# (geometry classes incl. E: walls floating over ground — the check that would have caught the
+# hovering barrier runs v0.7.4 shipped with). A FAIL in either aborts before Blender/kn5.
 active env     &&   run drive   "$PY" -m scripts.geometry.drive_test "$PROJ"
+active env     &&   run audit   "$PY" -m scripts.geometry.audit_mesh "$PROJ"
 
 if active blend || active kn5; then
   BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed

@@ -661,10 +661,58 @@ def build(project_dir: str | Path) -> dict:
         from scripts.environment import props as props_mod
         _mod = props_mod.load_module(Path(cfg_raw["props"].get(
             "barrier_obj", str(Path(__file__).resolve().parents[2] / "assets" / "models" / "concrete_barrier_4m.obj"))))
-        barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod)
+        # edge-surface sampler: road + shoulder tri tops, so barrier bases meet the pavement bench
+        from collections import defaultdict as _bdd
+        _bc2: dict = _bdd(list)
+        for _mesh2 in (road, shoulder):
+            _mv2 = _mesh2["vertices"]
+            for _t3 in _mesh2["tris"]:
+                _xs3 = [_mv2[_v][0] for _v in _t3]; _zs3 = [_mv2[_v][2] for _v in _t3]
+                for _ci3 in range(int(min(_xs3) // 3.0), int(max(_xs3) // 3.0) + 1):
+                    for _cj3 in range(int(min(_zs3) // 3.0), int(max(_zs3) // 3.0) + 1):
+                        _bc2[(_ci3, _cj3)].append((_mesh2, _t3))
+
+        def _edge_surface_y(px3, pz3):
+            best3 = None
+            for _mesh2, _t3 in _bc2.get((int(px3 // 3.0), int(pz3 // 3.0)), ()):
+                _mv2 = _mesh2["vertices"]
+                _a3, _b3, _c3 = _mv2[_t3[0]], _mv2[_t3[1]], _mv2[_t3[2]]
+                _d3 = (_b3[2] - _c3[2]) * (_a3[0] - _c3[0]) + (_c3[0] - _b3[0]) * (_a3[2] - _c3[2])
+                if abs(_d3) < 1e-12:
+                    continue
+                _w03 = ((_b3[2] - _c3[2]) * (px3 - _c3[0]) + (_c3[0] - _b3[0]) * (pz3 - _c3[2])) / _d3
+                _w13 = ((_c3[2] - _a3[2]) * (px3 - _c3[0]) + (_a3[0] - _c3[0]) * (pz3 - _c3[2])) / _d3
+                _w23 = 1.0 - _w03 - _w13
+                if _w03 >= -1e-6 and _w13 >= -1e-6 and _w23 >= -1e-6:
+                    _y3 = _w03 * _a3[1] + _w13 * _b3[1] + _w23 * _c3[1]
+                    if best3 is None or _y3 > best3:
+                        best3 = _y3
+            return best3
+        barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod,
+                                              surface_y=_edge_surface_y)
         barrier_group = ("1WALL_barrier", "kerb")
         print(f"  concrete barriers: {len(barrier['vertices'])} verts instanced over {len(barrier_spots)} runs")
     drop_over_road(barrier, "warning barriers", lo=-1.0, hi=3.5)
+    # proximity trim: drop barrier tris pressing within 1.0 m of the MAIN carriageway at deck
+    # height (flare tapers pull a handful of modules tighter than any real installation)
+    if barrier["tris"]:
+        from collections import defaultdict as _pdd
+        _mh: dict = _pdd(list)
+        for _v4 in road["vertices"]:
+            _mh[(int(_v4[0] // 4.0), int(_v4[2] // 4.0))].append(_v4)
+
+        def _too_close(vx4, vy4, vz4):
+            for _di4 in (-1, 0, 1):
+                for _dj4 in (-1, 0, 1):
+                    for _rx4, _ry4, _rz4 in _mh.get((int(vx4 // 4.0) + _di4, int(vz4 // 4.0) + _dj4), ()):
+                        if (vx4 - _rx4) ** 2 + (vz4 - _rz4) ** 2 < 1.0 and abs(vy4 - _ry4) < 1.2:
+                            return True
+            return False
+        _bv4 = barrier["vertices"]
+        _keep4 = [t4 for t4 in barrier["tris"] if not any(_too_close(*_bv4[_v5]) for _v5 in t4)]
+        if len(_keep4) != len(barrier["tris"]):
+            print(f"  warning barriers: proximity-trimmed {len(barrier['tris']) - len(_keep4)} tris (<1 m to carriageway)")
+            barrier["tris"] = _keep4
     barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
     if barrier_spots:
         print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "
