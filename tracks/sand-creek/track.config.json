@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.15.4",
+  "version": "0.16.7",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -18,6 +18,12 @@
         "name": "quebec_over_sand_creek",
         "center_m": 5950,
         "len_m": 130
+      },
+      {
+        "name": "e46th_leg_over_sand_creek",
+        "center_m": 6549,
+        "len_m": 110,
+        "_doc": "Third crossing Kevin reported: the dip after the rise on the 46th leg - a real bridge with railing over the creek channel; the channel is NOT in OSM waterways so it was never leveled or dressed (found at 5.2 m deep in the smooth profile)."
       }
     ]
   },
@@ -90,7 +96,8 @@
       "enabled": true,
       "flip_read": false,
       "flip_up": false
-    }
+    },
+    "lamp_model": true
   },
   "origin": "centroid",
   "true_north_rotation_deg": 180.0,
@@ -113,7 +120,17 @@
       "noon",
       "golden_hour"
     ],
-    "grassfx": true
+    "grassfx": true,
+    "streetlight": {
+      "intensity": 0.7,
+      "emissive": 0.22,
+      "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
+      "range_m": 60.0,
+      "spot_deg": 155,
+      "spot_sharpness": 0.1,
+      "range_gradient_offset": 0.4,
+      "specular_mult": 0.12
+    }
   },
   "kerb": {
     "_about": "Racing-circuit kerbs: taller + rideable ramp on the lane side (vs the default 5cm street kerb).",
@@ -121,5 +138,14 @@
     "width_m": 1.4,
     "top_frac": 0.6,
     "edge_ramp": 0.4
+  },
+  "road_markings": {
+    "style": "lane",
+    "center_yellow": true,
+    "_doc": "Lake Murray-style painted lines (double-yellow + white edges) - same assets as the Lariat."
+  },
+  "props": {
+    "concrete_barriers": true,
+    "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
   }
 }

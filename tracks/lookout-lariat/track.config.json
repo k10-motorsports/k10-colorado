@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.1.1",
+  "version": "0.2.5",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -52,17 +52,18 @@
     "_doc": "Elevation is 100% real USGS 3DEP along the route \u2014 ~1,300 ft from the 19th St gates to the Buffalo Bill summit (~7,375 ft). No hand-authored dips/cambers; the mountain provides them. max_grade_pct 16 clears the real steepest pitch (Paradise Rd -14.5%) \u2014 the default 6% cap flattened the descent and floated the road metres above the canyon floor.",
     "max_grade_pct": 16.0,
     "dips": [],
-    "cambers": []
+    "cambers": [],
+    "_crossfall_doc": "Camber is MEASURED (data/crossfall.json): lateral 1 m-DEM pairs -> cross-slope, median+mean smoothed, 1.5% deadband (flat where mild - not everywhere), capped 6% (~3.4 deg, no launching). 61.7% of the lap banked, mountain sections tilt into the hillside."
   },
   "scenery": {
-    "_doc": "Foothills pine forest, not urban grid: dense conifer fill over ALL non-road terrain (tree_style 'conifer'), no buildings/powerlines. Streetlights ON per Kevin: yellow, at 96 m (double the 48 m urban default \u2014 sparse mountain-road pools). corridor_margin_m keeps trunks clear of the pavement and its shoulders.",
+    "_doc": "Foothills pine forest: TurboSquid-derived pine sprite atlas (rendered imagery only, mesh never ships), packed HARD near the road (step 7 m, 4/station/side, bias 2.4 -> most trees within ~25 m of the verge), grass ground + GrassFX. Streetlights ON per Kevin: yellow, 96 m, dim wide pools.",
     "tree_style": "conifer",
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
-    "tree_step_m": 11.0,
-    "tree_cap": 9000,
-    "fill_range_m": 150.0,
-    "fill_per_station": 3,
+    "tree_step_m": 7.0,
+    "tree_cap": 16000,
+    "fill_range_m": 140.0,
+    "fill_per_station": 4,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -75,6 +76,51 @@
     "powerline_spacing_m": 0,
     "signs": {
       "enabled": false
+    },
+    "fill_bias": 2.4,
+    "lamp_model": true,
+    "fences": [
+      {
+        "start_m": 7600,
+        "end_m": 10200,
+        "side": 0,
+        "offset_m": 8.0,
+        "_doc": "summit plateau ranch land - split-rail both sides at the right-of-way line (Kevin: off the road a bit like irl)"
+      },
+      {
+        "start_m": 12500,
+        "end_m": 14500,
+        "side": 1,
+        "offset_m": 9.0,
+        "_doc": "Mount Vernon pastures, uphill side"
+      }
+    ],
+    "pylons": [
+      {
+        "start_m": 20600,
+        "end_m": 24000,
+        "side": -1,
+        "offset_m": 55.0,
+        "_doc": "distribution line paralleling the plains legs, well off the road; module carries its own 134 m cable span (tower-only module; cables strung in the Blender pass)"
+      }
+    ],
+    "road_signs": {
+      "enabled": true,
+      "speed_signs": [
+        {
+          "station_m": 700,
+          "face": 0
+        },
+        {
+          "station_m": 12800,
+          "face": 1
+        },
+        {
+          "station_m": 21200,
+          "face": 1
+        }
+      ],
+      "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
     }
   },
   "origin": "centroid",
@@ -99,10 +145,10 @@
     ],
     "grassfx": true,
     "streetlight": {
-      "_doc": "Yellow lamps (Kevin). color = thrown CSP light 0..1 rgb, emissive_color = lens glow 0..255 rgb. range_m 48 (vs 24 default): posts sit 96 m apart, so the doubled throw keeps a faint continuous ribbon between pools instead of dark gaps. intensity 2.5 + emissive 0.25: Kevin finds even the project-default 5.0 pools too bright \u2014 large, dim pools, not floodlights.",
-      "range_m": 48.0,
-      "intensity": 2.5,
-      "emissive": 0.25,
+      "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
+      "range_m": 60.0,
+      "intensity": 0.7,
+      "emissive": 0.22,
       "color": [
         1.0,
         0.85,
@@ -112,8 +158,36 @@
         255,
         220,
         60
-      ]
+      ],
+      "spot_deg": 155,
+      "spot_sharpness": 0.1,
+      "range_gradient_offset": 0.4,
+      "specular_mult": 0.12
     }
   },
-  "true_north_rotation_deg": 180.0
+  "true_north_rotation_deg": 180.0,
+  "kerb": {
+    "enabled": false,
+    "_doc": "Real mountain road: NO kerbs. The curvature test classed the whole mountain as corners and lined 25 km of a 6.5 m lane with 5 cm vertical-lip rumble strips on both edges - Kevin's 'undriveable slop'. Flush paved shoulder only."
+  },
+  "runoff": {
+    "enabled": false,
+    "_doc": "No flat tarmac runoff aprons on a pitched mountainside - run-off here is dirt, trees, and guardrail (warning barriers stay)."
+  },
+  "texture_overrides": {
+    "1GRASS": {
+      "diffuse": "assets/textures/grass_diffuse.jpg",
+      "normal": "assets/textures/grass_normal.jpg",
+      "_doc": "Alpine grass instead of dry dirt (Kevin) - mesh stays 1GRASS so physics, audits and GrassFX are untouched; GrassFX (lighting.grassfx) grows 3D blades on it."
+    }
+  },
+  "road_markings": {
+    "style": "lane",
+    "center_yellow": true,
+    "_doc": "Lake Murray look: solid double-yellow centre + white edge lines (ribbon.lane_markings port); road asphalt tiles at 4 m to match."
+  },
+  "props": {
+    "concrete_barriers": true,
+    "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
+  }
 }

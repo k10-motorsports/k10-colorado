@@ -117,8 +117,17 @@ for mat in bpy.data.materials:
     obj = mat.name[:-4] if mat.name.endswith("_mat") else mat.name
     shader, tx = shader_and_textures(obj)
     at = 1 if shader == "ksTree" else 0   # tree/bush/text billboards are alpha-cutout
+    # shader property VARs (pbr.KS_PROPS): without these AC uses shader defaults (ksDiffuse ~1.0)
+    # and vegetation billboards blast neon under CSP streetlights (the glowing-forest video).
+    ks_key = next((k for k in pbr.KS_PROPS if obj.upper().startswith(k)), None)
+    ks = pbr.KS_PROPS.get(ks_key, {})
     lines += [f"[MATERIAL_{i}]", f"NAME={mat.name}", f"SHADER={shader}",
-              "ALPHABLEND=0", f"ALPHATEST={at}", "DEPTHMODE=0", "VARCOUNT=0", f"RESCOUNT={len(tx)}"]
+              "ALPHABLEND=0", f"ALPHATEST={at}", "DEPTHMODE=0",
+              f"VARCOUNT={len(ks)}", f"RESCOUNT={len(tx)}"]
+    for v, (pname, pval) in enumerate(ks.items()):
+        lines += [f"VAR_{v}_NAME={pname}", f"VAR_{v}_FLOAT1={pval}",
+                  "VAR_{}_FLOAT2=0, 0".format(v), "VAR_{}_FLOAT3=0, 0, 0".format(v),
+                  "VAR_{}_FLOAT4=0, 0, 0, 0".format(v)]
     for j, (slot, fname, srcpath) in enumerate(tx):
         lines += [f"RES_{j}_NAME={slot}", f"RES_{j}_SLOT={j}", f"RES_{j}_TEXTURE={fname}"]
         needed[fname] = srcpath

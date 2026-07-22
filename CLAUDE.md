@@ -51,6 +51,15 @@ Kevin is looking at.
 > **Real banking/camber, researched per track.** e.g. PPIR oval = 10° in all four turns; High Plains runs
 > 1.5–4% with a deliberately off-camber Turn 1. Look it up; don't guess.
 
+> **Conform passes never cross layers.** Any pass that seats/clamps/grades something "to the nearby
+> surface" (grass clamp, embankment grading, shoulder sink, barrier/prop seating) MUST reject reference
+> points more than a layer-gap (~20 m; ~4 m for a shoulder vs its own deck) from its own height. On
+> stacked switchbacks XZ-proximity alone grabs the WRONG leg — that one omission, in four passes at
+> once, shipped the "rainbow road" build (road/shoulder/ground on different layers, fences in the sky).
+> And gate the SHIPPED kn5 with `scripts/ac/kn5_ground_check.py` (fidelity vs OBJs + double-sheet
+> terrain + per-class base seating) — OBJ-stage audits that validate props against the same data that
+> placed them are structurally blind.
+
 ---
 
 ## Repo layout

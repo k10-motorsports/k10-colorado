@@ -102,8 +102,9 @@ def build(track_dir: Path) -> Path:
             print(f"[build_kn5] smooth-shaded '{ob.name}' ({len(ob.data.vertices)} positions) to fit "
                   f"the 65,535 render-vertex limit")
         if len(ob.data.vertices) > 65535:
-            print(f"[build_kn5] WARNING: '{ob.name}' has {len(ob.data.vertices)} positions (> 65535) "
-                  f"— needs splitting or decimation before re-export.")
+            raise SystemExit(f"[build_kn5] FATAL: '{ob.name}' has {len(ob.data.vertices)} positions "
+                             f"(> 65535) — AC silently drops over-cap meshes (the invisible-forest "
+                             f"bug). Route this group through split_mesh_under_cap. Refusing to export.")
 
     # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
@@ -174,11 +175,19 @@ def build(track_dir: Path) -> Path:
         print(f"[build_kn5] real-world texture overrides: {sorted(overrides)}")
     mat_file = data / "materials.json"
     mats = json.loads(mat_file.read_text())["materials"] if mat_file.exists() else {}
+    # Vegetation billboards get AC's ksTree shader. Billboard planes have camera-facing normals, so
+    # under the default per-pixel shader every CSP streetlight hits them at FULL intensity from any
+    # angle — the Lariat's roadside forest glowed radioactive green at night while the road pools
+    # looked correct (they were tuned on real ground). ksTree treats vegetation normals as up-facing,
+    # so a downward lamp cone grazes trees like it grazes ground. Signs/fences stay standard-lit.
+    VEG = ("CONIFER", "TREES", "BUSHES", "PALMS")
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         mat = pbr.setup_material(bpy, ob, overrides=overrides)
         prefix = next((p for p in mats if ob.name.upper().startswith(p.upper())), None)
         if prefix:
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
+        elif ob.name.upper().startswith(VEG):
+            mat["shaderName"] = "ksTree"
 
     # Pack the textures INTO the .blend so it's self-contained and portable to another machine
     # (the image nodes point at this repo's assets/textures/, which won't exist on a Windows box).
