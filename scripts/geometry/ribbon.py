@@ -111,7 +111,7 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
-    P = 3 if ground is not None else 2
+    P = 4 if ground is not None else 2   # 4th point = the BURIED HEM (sheet edge sealed into dirt)
     for side in (1.0, -1.0):
         rows: list[int] = []
         arc = 0.0
@@ -135,9 +135,27 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
                 verts.append((x + nx * _cap(half + verge_w), verge_y, z + nz * _cap(half + verge_w)))
                 uvs.append((0.5, arc / tile_m))
                 gy0 = ground(x + nx * _cap(half + verge_w), z + nz * _cap(half + verge_w))
-                extra = min(max_w, max(verge_w, abs(verge_y - gy0) * ratio))
+                # BENCH EARTHWORKS (Kevin: "we cut roads INTO mountains, out of the ridges — not
+                # stuck on the outside"): the transition is ASYMMETRIC like real construction.
+                # CUT (ground above the bench): a steep 0.75:1 excavated face climbing into the
+                # hill. FILL (ground below): the gentle ratio:1 embankment descending to natural.
+                _cutting = gy0 > verge_y
+                _drop = abs(verge_y - gy0)
+                # CUTS are steep excavated faces. FILLS: gentle ratio:1 only while SMALL (urban
+                # lawns); a mountain drop > 1.5 m becomes a steep 0.75:1 fill face (the real
+                # Lariat's stone retaining walls) — a long shallow 2:1 sheet spanning 10-40 m of
+                # falling mountainside is an open lean-to of pavement you look UP INTO from the
+                # switchback below ("entire airgaps beneath it and the ground").
+                _slope_r = 0.75 if (_cutting or _drop > 1.5) else ratio
+                extra = min(max_w, max(verge_w, _drop * _slope_r))
                 o = _cap(half + verge_w + extra)
                 verts.append((x + nx * o, ground(x + nx * o, z + nz * o), z + nz * o))   # ground meet (draped)
+                uvs.append((1.0, arc / tile_m))
+                # BURIED HEM: one more metre out and 0.8 m INTO the dirt — the sheet's edge ends
+                # inside the terrain, not balanced on an interpolated line, so no grid-resolution
+                # or interp mismatch can ever open daylight under the lip.
+                oh = _cap(half + verge_w + extra + 1.0)
+                verts.append((x + nx * oh, ground(x + nx * oh, z + nz * oh) - 0.8, z + nz * oh))
                 uvs.append((1.0, arc / tile_m))
             else:
                 verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb - ground_drop, z + nz * (half + verge_w)))
@@ -178,7 +196,7 @@ def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
              (curb_face_w + sidewalk_w, lift + curb_h),
              (curb_face_w + sidewalk_w + grade_w, -grass_clearance)]   # points 0..3 (relative to banked edge)
     sidewalk_off = curb_face_w + sidewalk_w + grade_w
-    P = 5
+    P = 6 if ground is not None else 5   # 6th point = buried hem
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
@@ -211,6 +229,11 @@ def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
                 o4 = half + sidewalk_off + extra
                 g4 = ground(x + nx * o4, z + nz * o4)
                 verts.append((x + nx * o4, g4, z + nz * o4))
+                # BURIED HEM (same as road_shoulder): seal the sheet edge into the dirt
+                o5 = _cap(half + sidewalk_off + grade_w + 1.0) if callable(globals().get('_cap')) else o4 + 1.0
+                o5 = o4 + 1.0
+                verts.append((x + nx * o5, ground(x + nx * o5, z + nz * o5) - 0.8, z + nz * o5))
+                uvs.append((1.0, arc / tile_m))
                 uvs.append(((sidewalk_off + extra) / sidewalk_off, arc / tile_m))
             else:
                 o4 = half + sidewalk_off + grade_w
@@ -384,8 +407,8 @@ def grade_embankment(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
                 if on_bridge:
                     continue                    # leave the natural creek/valley open so the deck spans it
                 tgt = max(gy, shelf - slope * over)
-            else:                               # CUT — rise from the shelf to real ground
-                tgt = min(gy, shelf + slope * over)
+            else:                               # CUT — a steep excavated face rising into the ridge
+                tgt = min(gy, shelf + over / 0.75)
             row[k] = (gx, tgt, gz)
 
 

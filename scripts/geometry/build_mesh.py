@@ -167,6 +167,25 @@ def write_ground_local(path: Path, grid_xyz: list[list[Vertex]]) -> None:
                     encoding="utf-8")
 
 
+def _grid_trisurf(grid_xyz: list[list[Vertex]], x: float, z: float) -> float:
+    """Height of the TRIANGULATED grid at (x,z) — the same diagonal split grass_terrain renders
+    ((a,b,c)+(a,c,d) per quad), so 'the ground' here IS the ground on screen."""
+    ny, nx = len(grid_xyz), len(grid_xyz[0])
+    x0, z0 = grid_xyz[0][0][0], grid_xyz[0][0][2]
+    dx = (grid_xyz[0][1][0] - x0) if nx > 1 else 1.0
+    dz = (grid_xyz[1][0][2] - z0) if ny > 1 else 1.0
+    fi = (x - x0) / dx if dx else 0.0
+    fj = (z - z0) / dz if dz else 0.0
+    i0 = max(0, min(nx - 2, int(fi))); j0 = max(0, min(ny - 2, int(fj)))
+    u = max(0.0, min(1.0, fi - i0)); v = max(0.0, min(1.0, fj - j0))
+    ya = grid_xyz[j0][i0][1]; yb = grid_xyz[j0][i0 + 1][1]
+    yc = grid_xyz[j0 + 1][i0 + 1][1]; yd = grid_xyz[j0 + 1][i0][1]
+    # quad corners a=(0,0) b=(1,0) c=(1,1) d=(0,1); tris (a,b,c) and (a,c,d) — diagonal a-c (u==v)
+    if u >= v:      # tri (a,b,c): y = ya + u*(yb-ya) + v*(yc-yb)
+        return ya + u * (yb - ya) + v * (yc - yb)
+    return ya + v * (yd - ya) + u * (yc - yd)   # tri (a,c,d)
+
+
 def _grid_bilinear(grid_xyz: list[list[Vertex]], x: float, z: float) -> float:
     """Bilinear Y of a regular (x,z) grid of (x,y,z) verts. dx/dz may be signed (mirror_x)."""
     ny, nx = len(grid_xyz), len(grid_xyz[0])
@@ -463,7 +482,10 @@ def build(project_dir: str | Path) -> dict:
                                                   raw_pts[i][2] - raw_pts[i - 1][2]))
             raw_ground = (_gst, [z - elev0 for z in _ej["z_raw_m"]])
     bridge_of = _bridge_detector(centerline, natural_grid, raw_ground=raw_ground)
-    ribbon.grade_embankment(grid_xyz, centerline, widths, bank_at=bnk,
+    # band=2.5 == the shoulder's verge_w: sheet and terrain must BREAK AT THE SAME LINE with the
+    # same slopes, or a stagger wedge of air opens under every cut face (the tenting gate read a
+    # constant ~2 m of daylight under the sheet with the old band=4.0 vs verge 2.5).
+    ribbon.grade_embankment(grid_xyz, centerline, widths, bank_at=bnk, band=2.5,
                             extra_roads=[(p, w) for _n, p, w in connectors],
                             clearance=GRASS_CLEARANCE_M, bridge_of=bridge_of)
 
@@ -498,7 +520,10 @@ def build(project_dir: str | Path) -> dict:
     # edge strips DRAPE onto so their outer lip sits flush on the ground at road resolution (no float,
     # independent of the coarse grass grid). Same sampler build_env + audit use via ground.local.json.
     def grass_surf(gx, gz):
-        return _grid_bilinear(grid_xyz, gx, gz)
+        # TRIANGLE-exact, not bilinear: the grass mesh splits each quad (a,b,c)+(a,c,d); bilinear
+        # disagrees with those triangles by up to ~0.5 m mid-quad on 10 m mountain cells — the
+        # drape's lip "touched" a surface that doesn't render, and daylight showed under the sheet.
+        return _grid_trisurf(grid_xyz, gx, gz)
     # ROAD EDGE — config-gated. Default: a paved asphalt SHOULDER that ramps/embanks the lane edge down (or
     # up) to the REAL ground. `road_edge.profile == "sidewalk"` instead sweeps a continuous
     # curb→sidewalk→verge→embankment profile (urban streets, e.g. Sand Creek). Both DRAPE their outer edge
@@ -887,6 +912,14 @@ def build(project_dir: str | Path) -> dict:
             orient_up(surface)
     for _gn, cm in conn_meshes:
         orient_up(cm)
+    # SOLID UNDERSIDE — a SEPARATE VISUAL mesh (no '1' prefix: not collidable, not gated as
+    # drivable), reversed winding, dirt-textured: the embankment/cut mass seen from the
+    # switchback below. Single-sided, the sheet was backface-culled into a HOLE in the
+    # mountainside with the road floating over it ("entire airgaps beneath it and the ground").
+    # Built AFTER orient_up, which would otherwise flip it back up.
+    shoulder_under = {"vertices": list(shoulder["vertices"]),
+                      "uvs": list(shoulder.get("uvs", [])),
+                      "tris": [(a, c, b) for a, b, c in shoulder["tris"]]}
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
@@ -904,6 +937,7 @@ def build(project_dir: str | Path) -> dict:
     # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
     groups = [*split_mesh_under_cap("1GRASS", "grass", grass),
               *split_mesh_under_cap(edge_group, edge_mat, shoulder),
+               *split_mesh_under_cap("SHOULDERUND", edge_mat, shoulder_under),
               ("1RUNOFF_corners", "road", runoff),
               *split_mesh_under_cap("1ROAD_main", "road", road),
               *split_mesh_under_cap("1KERB_corners", "kerb", kerb),

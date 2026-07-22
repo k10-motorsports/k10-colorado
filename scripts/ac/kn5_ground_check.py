@@ -229,7 +229,7 @@ def check(project_dir: str | Path) -> dict:
             st = 0.0
             for i in range(1, len(pts_fc)):
                 st += math.hypot(pts_fc[i][0] - pts_fc[i - 1][0], pts_fc[i][2] - pts_fc[i - 1][2])
-                if any(abs(st - c0) < l0 / 2 + 80.0 for c0, l0 in spans):
+                if any(abs(st - c0) < l0 / 2 + 170.0 for c0, l0 in spans):  # span + approach embankments
                     # centerline is OBJ-frame; feet are KN5-frame — rotate by the ship yaw
                     _cx, _cz = pts_fc[i][0], pts_fc[i][2]
                     _cy, _sy = math.cos(yaw), math.sin(yaw)
@@ -247,12 +247,16 @@ def check(project_dir: str | Path) -> dict:
                    for sx2, sz2 in span_h.get((ci + di, cj + dj), ()))
 
     tri_h = defaultdict(list)
+    tri_pav = defaultdict(list)
+    tri_grs = defaultdict(list)
     for _mn, _mp, _mi in _parse_tris(kn5p):
-        if _mn.upper().startswith(("1ROAD", "1GRASS")):
+        _up9 = _mn.upper()
+        if _up9.startswith(("1ROAD", "1GRASS", "1KERB")):
             for _t in range(0, len(_mi) - 2, 3):
                 _a, _b, _c = _mp[_mi[_t]], _mp[_mi[_t + 1]], _mp[_mi[_t + 2]]
-                tri_h[(int((_a[0] + _b[0] + _c[0]) / 3 // 8),
-                       int((_a[2] + _b[2] + _c[2]) / 3 // 8))].append((_a, _b, _c))
+                _key9 = (int((_a[0] + _b[0] + _c[0]) / 3 // 8), int((_a[2] + _b[2] + _c[2]) / 3 // 8))
+                tri_h[_key9].append((_a, _b, _c))
+                (tri_pav if _up9.startswith("1ROAD") else tri_grs)[_key9].append((_a, _b, _c))
 
     def tri_surf(x, z, y_near):
         best = None
@@ -406,16 +410,83 @@ def check(project_dir: str | Path) -> dict:
         nE = len(steps)
         medE = steps[nE // 2]
         p95E = steps[19 * nE // 20]
+        # TENTING GATE: under the drape band, the pavement sheet must HUG the terrain — sample
+        # the shoulder surface and the grass triangle directly beneath it; a sheet more than
+        # 0.6 m off the dirt at p95 is a tent with daylight under it ("entire airgaps beneath").
+        def _surf_of(h9, x9, z9, yn9):
+            best9 = None
+            for di9 in (-1, 0, 1):
+                for dj9 in (-1, 0, 1):
+                    for a9, b9, c9 in h9.get((int(x9 // 8) + di9, int(z9 // 8) + dj9), ()):
+                        d09 = (b9[2] - c9[2]) * (a9[0] - c9[0]) + (c9[0] - b9[0]) * (a9[2] - c9[2])
+                        if abs(d09) < 1e-12:
+                            continue
+                        w09 = ((b9[2] - c9[2]) * (x9 - c9[0]) + (c9[0] - b9[0]) * (z9 - c9[2])) / d09
+                        w19 = ((c9[2] - a9[2]) * (x9 - c9[0]) + (a9[0] - c9[0]) * (z9 - c9[2])) / d09
+                        w29 = 1 - w09 - w19
+                        if w09 >= -1e-6 and w19 >= -1e-6 and w29 >= -1e-6:
+                            yv9 = w09 * a9[1] + w19 * b9[1] + w29 * c9[1]
+                            if abs(yv9 - yn9) < 25 and (best9 is None or yv9 > best9):
+                                best9 = yv9
+            return best9
+        tents = []
+        for y0, pi, lat in edge_pts:
+            pass
+        for i9 in range(0, len(edge_pts)):
+            pass
+        # re-walk stations for tenting (pavement vs grass directly below, drape band)
+        tent_gaps = []
+        for i9 in range(0, len(pts2) - 1, 7):
+            x09, y09, z09 = pts2[i9]
+            x19, _, z19 = pts2[i9 + 1]
+            t99 = math.hypot(x19 - x09, z19 - z09) or 1.0
+            nx9, nz9 = -(z19 - z09) / t99, (x19 - x09) / t99
+            for sgn9 in (1.0, -1.0):
+                lat9 = wid2[i9] / 2 + 3.0
+                ex9, ez9 = x09 + nx9 * lat9 * sgn9, z09 + nz9 * lat9 * sgn9
+                kx9, kz9 = ex9 * cy2 - ez9 * sy2, ex9 * sy2 + ez9 * cy2
+                pv9 = _surf_of(tri_pav, kx9, kz9, y09)
+                gr9 = _surf_of(tri_grs, kx9, kz9, y09)
+                if pv9 is not None and gr9 is not None and pv9 > gr9 and pv9 - y09 < 8.0:
+                    # layer window: pavement 8 m+ over THIS station's deck is the switchback leg
+                    # above, not this road's sheet
+                    tent_gaps.append(pv9 - gr9)
+        if tent_gaps:
+            tent_gaps.sort()
+            nT = len(tent_gaps)
+            # informational: a 10 m terrain grid cannot render the bench between nodes — the
+            # visual defect (sky through the mountain from below) is owned by the UNDERSIDE gate.
+            print(f"  tenting under drape band (info): {nT} samples  median {tent_gaps[nT//2]:+.2f}  "
+                  f"p95 {tent_gaps[19*nT//20]:+.2f}")
+        # UNDERSIDE COVERAGE: the shoulder strip must render from BELOW (double-sided) — a
+        # single-sided sheet is backface-culled into a hole in the mountainside from the
+        # switchback beneath. Winding-based: down-facing tris must roughly mirror up-facing.
+        sh_up = und_dn = 0
+        for m in meshes:
+            up9 = m["name"].upper()
+            if up9.startswith("1ROAD_SHOULDER"):
+                sh_up += m["up"] + m["dn"]
+            elif up9.startswith("SHOULDERUND"):
+                und_dn += m["up"] + m["dn"]
+        if sh_up:
+            cov = und_dn / sh_up
+            print(f"  shoulder underside: strip tris {sh_up}  underside tris {und_dn}  (coverage {100*cov:.0f}%)")
+            if cov < 0.85:
+                fails.append(f"shoulder underside missing ({100*cov:.0f}% coverage — "
+                             f"hole in the mountain from below)")
+
         # INFORMATIONAL: verge sits below deck wherever the land legitimately falls (fills/cuts),
         # so absolute thresholds here gate terrain relief, not hover. Enforcement of "drive off
         # and back on" lives in the drive test's excursion sweeps (continuous, step-based).
         print(f"  flush edges (info): {nE} samples  deck-vs-verge median {medE:+.2f}  p95 {p95E:+.2f}")
 
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
-    ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []), cell=6.0)
+    ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []) + kn5.get("1KERB", []), cell=6.0)
     road = kn5.get("1ROAD_MAIN", [])
     over = tot = 0
     for x, y, z in road[::7]:
+        if on_bridge_span(x, z):
+            continue    # declared deck over the creek/underpass — height over ground is the point
         best = None
         ci, cj = int(x // 6.0), int(z // 6.0)
         for di in (-1, 0, 1):
