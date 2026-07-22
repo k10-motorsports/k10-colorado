@@ -1106,6 +1106,11 @@ def build(project_dir: str | Path) -> dict:
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
+               # Kevin's model-pack props — these were BUILT but never written in v0.7.5 (the
+               # fences/pylons/euro-signs shipped as nothing). Keep them in this list forever.
+               *split_mesh_under_cap("FENCEWOOD", "road", ranch_fences),
+               *split_mesh_under_cap("GANTRY_pylons", "road", pylon_line),
+               ("EUROSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])

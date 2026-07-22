@@ -63,8 +63,12 @@ def generate(project_dir: str | Path) -> Path:
                         "BUILDINGS", "BRICK", "STUCCO", "WAREHOUSE", "WHMETAL",
                         "ROOFS", "RFMETAL", "WATER")
     occluders = [g for g in groups if g.upper().startswith(OCCLUDE_PREFIXES)]
-    has_water = any(g.upper() == "WATER" for g in groups)
-    has_lights = any(g.upper() == "LIGHTS" for g in groups)
+    # PREFIX matching everywhere, never exact: split_mesh_under_cap renames every over-cap mesh to
+    # <name>_a.._n (LIGHTS -> LIGHTS_a..). v0.7.5 shipped BOTH street tracks with completely dead
+    # streetlights because `== "LIGHTS"` matched nothing after the split.
+    has_water = any(g.upper().startswith("WATER") for g in groups)
+    lights_groups = [g for g in groups if g.upper().startswith("LIGHTS")]
+    has_lights = bool(lights_groups)
     has_windows = any(g.upper() in ("WINDOWS", "BUILDING", "BUILDINGS") for g in groups)
     has_signs = any(g.upper() == "SIGNS" for g in groups)
 
@@ -127,7 +131,7 @@ def generate(project_dir: str | Path) -> Path:
         out += ["; --- Water: real water shader on Sand Creek ---------------------------------",
                 "[INCLUDE: common/materials_track.ini]", "",
                 "[Material_Water]",
-                "Materials = WATER_mat",
+                f"Materials = {', '.join(f'{g}_mat' for g in groups if g.upper().startswith('WATER')) or 'WATER_mat'}",
                 "Type = POND", ""]
 
     if has_lights:
@@ -159,7 +163,7 @@ def generate(project_dir: str | Path) -> Path:
             try:
                 from scripts.ac.verify_kn5 import _parse
                 _nodes, _meshes = _parse(kn5p)
-                pts = [v for m in _meshes if m["name"].upper() == "LIGHTS" for v in m["P"]]
+                pts = [v for m in _meshes if m["name"].upper().startswith("LIGHTS") for v in m["P"]]
                 buckets: dict[tuple[int, int], list] = {}
                 for x, y, z in pts:
                     buckets.setdefault((int(x // 5), int(z // 5)), []).append((x, y, z))
@@ -186,8 +190,9 @@ def generate(project_dir: str | Path) -> Path:
                     f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i}", "COLOR_OFF = 0, 0, 0, 0",
                     "CONDITION = NIGHT_SMOOTH", f"RANGE = {sl_r}", "SPOT = 124", "SPOT_SHARPNESS = 0.3",
                     "DIRECTION = 0, -1, 0", "CLUSTER_THRESHOLD = 8", ""]
+        lights_mats = ", ".join(f"{g}_mat" for g in lights_groups) or "LIGHTS_mat"
         out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
-                "MATERIALS = LIGHTS_mat",
+                f"MATERIALS = {lights_mats}",
                 "KEY_0 = ksEmissive",
                 f"VALUE_0 = {sl_ec[0]}, {sl_ec[1]}, {sl_ec[2]}, {sl_e}  ; lamp-lens glow (lighting.streetlight.emissive_color/.emissive)",
                 "VALUE_0_OFF = 0, 0, 0, 0",

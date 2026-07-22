@@ -87,6 +87,9 @@ if active blend || active kn5; then
   # Gate: assert the exported kn5 is actually drivable (no dup meshes, drivable surfaces face-up, spawns
   # on the road) — every past fall-through, encoded as a check. A failure aborts BEFORE packaging/release.
   active kn5   && run verify "$PY" -m scripts.ac.verify_kn5 "$PROJ"
+  # Gate: the SHIPPED kn5 must equal the audited OBJs up to the configured yaw (kn5 fidelity).
+  # Catches assembly bugs (dropped/displaced groups, stale meshes) that no OBJ-stage gate can see.
+  active kn5   && run fidelity "$PY" -m scripts.ac.kn5_ground_check "$PROJ"
 fi
 
 if active pack; then
