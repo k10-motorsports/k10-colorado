@@ -74,12 +74,12 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
             off = widths_m[i] / 2.0 + off_extra
             bx, bz = x + nx * off, z + nz * off
             if surface_y is not None:
-                sy = surface_y(bx, bz)
+                sy = surface_y(bx, bz, y)   # y_ref = the run's own station height (layer window)
                 if sy is None:
                     # retry INBOARD and MOVE the module there — taking the inboard height while
                     # leaving the module at the outer spot hung 50 modules over the shoulder edge
                     bx2, bz2 = x + nx * (off - 1.2), z + nz * (off - 1.2)
-                    sy = surface_y(bx2, bz2)
+                    sy = surface_y(bx2, bz2, y)
                     if sy is not None:
                         bx, bz = bx2, bz2
                 if sy is None:
@@ -128,6 +128,10 @@ def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=No
                 w_half = (widths_m[i] / 2.0 if widths_m else 0.0)
                 bx, bz = x + nx * (w_half + off), z + nz * (w_half + off)
                 by = ground(bx, bz) if ground else y
+                # LAYER WINDOW safety net: a ground sample tens of metres off the run's own station
+                # height is corrupt or another terrain layer — skip the instance, never fly/bury it.
+                if by is None or abs(by - y) > 45.0:
+                    continue
                 base = len(out["vertices"])
                 for mx, my, mz in module["vertices"]:
                     out["vertices"].append((bx + tx * mz + nx * mx, by + my, bz + tz * mz + nz * mx))

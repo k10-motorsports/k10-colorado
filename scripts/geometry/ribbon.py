@@ -283,6 +283,8 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
             for di in (-1, 0, 1):
                 for dj in (-1, 0, 1):
                     for cx, cy, cz in buckets.get((ci + di, cj + dj), ()):
+                        if abs(cy - gy) > 20.0:   # different leg of a stacked switchback, not "the" road
+                            continue
                         d2 = (gx - cx) ** 2 + (gz - cz) ** 2
                         if d2 < best_d2:
                             best_d2, near_y = d2, cy
@@ -360,6 +362,11 @@ def grade_embankment(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
             for di in range(-R, R + 1):
                 for dj in range(-R, R + 1):
                     for sx, sy, sz in buckets.get((ci + di, cj + dj), ()):
+                        # LAYER WINDOW: a sample far above/below this node's NATURAL ground is a
+                        # different leg of a stacked switchback. Grading to it erects a fill wall
+                        # beside the lower leg or carves a canyon beside the upper one.
+                        if abs(sy - gy) > 20.0:
+                            continue
                         d2 = (gx - sx) ** 2 + (gz - sz) ** 2
                         if d2 < best_d2:
                             best_d2, ref_y = d2, sy
@@ -404,6 +411,12 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
     for x, y, z in road_verts:
         buckets[(int(x // cell), int(z // cell))].append((x, y, z))
     r2 = reach * reach
+    # LAYER WINDOW: at a switchback stack two road legs share the same XZ column. Clamping a node
+    # under the LOWEST nearby road vert drags the grass beside the UPPER leg a hundred metres down —
+    # the upper road then rides a canyon of air ("road 10 feet over the ground", the rainbow-road
+    # layers Kevin drove through). A road vert far below the node's own height belongs to a DIFFERENT
+    # leg: never conform across more than LAYER_DY of vertical separation.
+    LAYER_DY = 20.0
     for row in grid_xyz:
         for k in range(len(row)):
             gx, gy, gz = row[k]
@@ -412,7 +425,7 @@ def clamp_terrain_below_road(grid_xyz: list[list[Vertex]], road_verts: list[Vert
             for di in (-1, 0, 1):
                 for dj in (-1, 0, 1):
                     for rx, ry, rz in buckets.get((ci + di, cj + dj), ()):
-                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= r2:
+                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= r2 and gy - ry <= LAYER_DY:
                             t = ry - clear
                             if lim is None or t < lim:
                                 lim = t

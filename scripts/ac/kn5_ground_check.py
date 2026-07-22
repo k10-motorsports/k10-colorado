@@ -146,6 +146,62 @@ def check(project_dir: str | Path) -> dict:
             fails.append(f"{b}: {100*frac:.1f}% of sampled kn5 verts have no OBJ counterpart "
                          f"(worst {worst:.2f} m)")
 
+    # DOUBLE-SHEET TERRAIN: a healthy terrain is a single-valued heightfield (plus the border
+    # skirt). Two grass surfaces >12 m apart in the same 2 m XZ cell = corruption (the phantom-clamp
+    # class: summit nodes stamped with plains heights -> 570 m vertical curtains, "rainbow road").
+    g = kn5.get("1GRASS", [])
+    if g:
+        xs = [p[0] for p in g]; zs = [p[2] for p in g]
+        bx0, bx1, bz0, bz1 = min(xs), max(xs), min(zs), max(zs)
+        cells = defaultdict(lambda: [1e18, -1e18])
+        for x, y, z in g:
+            if (x - bx0 < 520 or bx1 - x < 520 or z - bz0 < 520 or bz1 - z < 520):
+                continue  # border ring = legit skirt drop
+            c = cells[(int(x // 2), int(z // 2))]
+            c[0] = min(c[0], y); c[1] = max(c[1], y)
+        sheets = [(k, v[1] - v[0]) for k, v in cells.items() if v[1] - v[0] > 12.0]
+        print(f"  double-sheet terrain cells (>12 m spread): {len(sheets)}")
+        for (cx, cz), sp in sorted(sheets, key=lambda s: -s[1])[:4]:
+            print(f"    spread {sp:6.1f} m at ({cx*2:8.0f},{cz*2:8.0f})")
+        if len(sheets) > 20:
+            fails.append(f"terrain has {len(sheets)} double-sheet cells (phantom-clamp corruption)")
+
+    # BASE SEATING: every standing object's column base must touch the ground it stands on.
+    ground_all = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", [])
+                          + kn5.get("1ROAD_MAIN", []), cell=4.0)
+    for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
+                     ("GANTRY", "pylons"), ("SIGNPOST", "signposts")):
+        pts_b = kn5.get(b, [])
+        if not pts_b:
+            continue
+        colmin: dict = defaultdict(lambda: 1e9)
+        for x, y, z in pts_b:
+            k = (round(x / 1.5), round(z / 1.5))
+            colmin[k] = min(colmin[k], y)
+        gaps2, nog = [], 0
+        for (kx, kz), base in colmin.items():
+            x, z = kx * 1.5, kz * 1.5
+            best = None
+            ci, cj = int(x // 4.0), int(z // 4.0)
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for rx, ry, rz in ground_all.get((ci + di, cj + dj), ()):
+                        if (x - rx) ** 2 + (z - rz) ** 2 <= 16 and ry < base + 0.6:
+                            best = ry if best is None else max(best, ry)
+            if best is None:
+                nog += 1
+            else:
+                gaps2.append(base - best)
+        gaps2.sort()
+        n2 = len(gaps2)
+        p95 = gaps2[19 * n2 // 20] if n2 else 0.0
+        mx = gaps2[-1] if n2 else 0.0
+        nogf = nog / max(1, n2 + nog)
+        print(f"  {label:9s} columns {n2+nog:5d}: buried/no-ground {100*nogf:4.1f}%  "
+              f"base-gap p95 {p95:+.2f}  max {mx:+.2f}")
+        if p95 > 1.2 or mx > 3.0 or nogf > 0.08:
+            fails.append(f"{label}: p95 {p95:.2f} max {mx:.2f} no-ground {100*nogf:.0f}%")
+
     # physical sanity: road deck supported by ground beneath (floating-deck guard)
     ground_h = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", []), cell=6.0)
     road = kn5.get("1ROAD_MAIN", [])

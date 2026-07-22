@@ -618,11 +618,17 @@ def build(project_dir: str | Path) -> dict:
     # dropped tris left HOLES in the embankment skirt (visible daylight under the road at the
     # switchback stacks). Verts covered by road clamp under the local deck; tris still flagged by
     # 7-point sampling (spanning faces) sink whole. Mesh stays watertight.
+    # LAYER WINDOW: _road_tops(x,z) returns EVERY deck in this XZ column — at a stacked switchback
+    # that's both legs. min(_tops) is the LOWER leg, and sinking an upper-leg shoulder vert to
+    # "lower deck - 0.4" teleports it a hundred metres down: vertical shoulder curtains, the
+    # rainbow-road layers Kevin flew off. Only sink relative to decks within OWN_DECK_DY of the
+    # vert itself — a shoulder rides within ~2 m of its own deck by construction.
+    OWN_DECK_DY = 4.0
     _sv2 = shoulder["vertices"]
     _sunk = 0
     for _vi in range(len(_sv2)):
         _vx, _vy, _vz = _sv2[_vi]
-        _tops = _road_tops(_vx, _vz)
+        _tops = [_t for _t in _road_tops(_vx, _vz) if abs(_t - _vy) <= OWN_DECK_DY]
         if _tops and _vy > min(_tops) + 0.15:
             _sv2[_vi] = (_vx, min(_tops) - 0.4, _vz)
             _sunk += 1
@@ -642,7 +648,10 @@ def build(project_dir: str | Path) -> dict:
                 _w2 = 1.0 - _u - _v2
                 _samples.append(tuple(_u * _corners[0][_k] + _v2 * _corners[1][_k] + _w2 * _corners[2][_k]
                                       for _k in range(3)))
-        _local_tops = [min(_tops2) for _sx, _sy, _sz in _samples for _tops2 in [_road_tops(_sx, _sz)] if _tops2]
+        _tri_y = sum(_c[1] for _c in _corners) / 3.0
+        _local_tops = [min(_tops2) for _sx, _sy, _sz in _samples
+                       for _tops2 in [[_t for _t in _road_tops(_sx, _sz) if abs(_t - _tri_y) <= OWN_DECK_DY]]
+                       if _tops2]
         if _local_tops and any(_sy > min(_local_tops) + 0.15 for _sx, _sy, _sz in _samples):
             _floor = min(_local_tops) - 0.4
             for _v in _t2:
@@ -672,7 +681,11 @@ def build(project_dir: str | Path) -> dict:
                     for _cj3 in range(int(min(_zs3) // 3.0), int(max(_zs3) // 3.0) + 1):
                         _bc2[(_ci3, _cj3)].append((_mesh2, _t3))
 
-        def _edge_surface_y(px3, pz3):
+        def _edge_surface_y(px3, pz3, y_ref=None):
+            # LAYER WINDOW: at a stacked switchback this XZ column holds BOTH legs' surfaces. The old
+            # "highest wins" seated lower-leg barriers on the UPPER deck (hovering barriers). With
+            # y_ref (the barrier's own station height) pick the surface CLOSEST to it, and never
+            # accept one more than 4 m away — that's a different layer, not this barrier's ground.
             best3 = None
             for _mesh2, _t3 in _bc2.get((int(px3 // 3.0), int(pz3 // 3.0)), ()):
                 _mv2 = _mesh2["vertices"]
@@ -685,7 +698,12 @@ def build(project_dir: str | Path) -> dict:
                 _w23 = 1.0 - _w03 - _w13
                 if _w03 >= -1e-6 and _w13 >= -1e-6 and _w23 >= -1e-6:
                     _y3 = _w03 * _a3[1] + _w13 * _b3[1] + _w23 * _c3[1]
-                    if best3 is None or _y3 > best3:
+                    if y_ref is not None:
+                        if abs(_y3 - y_ref) > 4.0:
+                            continue
+                        if best3 is None or abs(_y3 - y_ref) < abs(best3 - y_ref):
+                            best3 = _y3
+                    elif best3 is None or _y3 > best3:
                         best3 = _y3
             return best3
         barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod,
