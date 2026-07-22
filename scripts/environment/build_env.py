@@ -752,6 +752,15 @@ def build(project_dir: str | Path) -> dict:
                     if not near_track(rx, rz):              # stream nowhere near the lap — skip
                         continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
+                    # CHANNEL GUARD: a footprint straddling the carved creek channel has wildly
+                    # different ground across its ring — seating on the ring-min hangs the tree off
+                    # the bank lip (17 cottonwoods shipped 15 m over the Sand Creek channel). A bank
+                    # this steep is water's edge, not tree ground: skip.
+                    _half_g = h * t_wfrac / 2
+                    _ring_g = [ground_y(rx + _half_g * math.cos(k * math.pi / 4),
+                                        rz + _half_g * math.sin(k * math.pi / 4)) for k in range(8)]
+                    if max(_ring_g) - min(_ring_g) > 4.0:
+                        continue
                     tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
                                                        _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tr.random() * math.pi))
@@ -798,10 +807,22 @@ def build(project_dir: str | Path) -> dict:
     _models = Path(__file__).resolve().parents[2] / "assets" / "models"
     _lamp_module = None
     _lens_module = None
+    _lamp_fixture = (0.0, 9.75, 0.0)   # (module-x, height, module-z) of the emitter
     if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
         _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
         if (_models / "lamp_lens.obj").exists():
             _lens_module = props_mod.load_module(_models / "lamp_lens.obj")
+        # THE STYLE INDICATES the emitter position: centroid of the model's top-metre verts.
+        # A post-top luminaire yields (~0, top, ~0) — emitter INSIDE the head atop the mast; an
+        # arm style yields the arm tip. The old hardcoded (+1.2 m, 9.75) floated the glowing lens
+        # BESIDE this model's actual fixture.
+        _top_y = max(v[1] for v in _lamp_module["vertices"])
+        _top = [v for v in _lamp_module["vertices"] if v[1] > _top_y - 1.0]
+        _lamp_fixture = (sum(v[0] for v in _top) / len(_top),
+                         sum(v[1] for v in _top) / len(_top) - 0.15,
+                         sum(v[2] for v in _top) / len(_top))
+        print(f"  lamp fixture (from model style): x {_lamp_fixture[0]:+.2f}  "
+              f"h {_lamp_fixture[1]:.2f}  z {_lamp_fixture[2]:+.2f}")
     fences_cfg = scn.get("fences", [])
     ranch_fences = {"vertices": [], "uvs": [], "tris": []}
     if fences_cfg and (_models / "ranch_fence_panel.obj").exists():
@@ -887,6 +908,11 @@ def build(project_dir: str | Path) -> dict:
             tx, tz = b[0] - a[0], b[2] - a[2]
             tl = math.hypot(tx, tz) or 1e-6
             nx, nz = -tz / tl, tx / tl
+            # ALTERNATE SIDES (Kevin): staggered left/right like a real two-lane — halves the
+            # per-side density and reads correctly at night. Flipping the normal flips the whole
+            # module frame, so the arm/fixture still faces the road from either verge.
+            if nlights % 2:
+                nx, nz = -nx, -nz
             off = widths[i] / 2 + 2.0
             px, pz = x - nx * off, z - nz * off
             if on_surface(px, pz):                     # verge offset landed on a crossing/fold-back road — skip
@@ -919,7 +945,12 @@ def build(project_dir: str | Path) -> dict:
                 base2["uvs"] = list(_lamp_module["uvs"])
                 base2["tris"] = list(_lamp_module["tris"])
                 shaft = base2
-                hx2, hy2, hz2 = px + nx * 1.2, gy_pole + 9.75, pz + nz * 1.2
+                _fx, _fy, _fz = _lamp_fixture
+                _tl3 = math.hypot(nx, nz) or 1e-9
+                _txl3, _tzl3 = nz / _tl3, -nx / _tl3
+                hx2 = px + _txl3 * _fz + nx * _fx
+                hy2 = gy_pole + _fy
+                hz2 = pz + _tzl3 * _fz + nz * _fx
                 if _lens_module is not None:
                     # the model's own glass lens: glows (LIGHTS_mat ksEmissive) at ANY distance even
                     # when CSP culls the dynamic light — why "the lights aren't all on at once" read

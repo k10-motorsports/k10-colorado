@@ -714,6 +714,31 @@ def build(project_dir: str | Path) -> dict:
     # AC) sees. Trimming pre-lift left 137 hairpin-apex verts 1.19->1.09 m under the other leg's
     # edge: outside the trim window, inside the audit's.
     barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
+    # FINAL RE-SEAT, triangle-exact: the seat->lift->trim chain accumulates offsets differently per
+    # edge profile (Sand Creek's sidewalk profile shipped EVERY barrier hovering +0.59 m median while
+    # vertex-based gates read it as seated; one Lariat hairpin sat +4 m). Instead of chasing the
+    # arithmetic, drop each 4 m module onto the barycentric surface of the FINAL road+shoulder tris
+    # at its own footprint (y_ref-windowed so stacks stay layer-safe). Runs BEFORE trim/prune while
+    # module vert-blocks are still contiguous.
+    if cfg_raw.get("props", {}).get("concrete_barriers") and barrier["vertices"]:
+        _nv_mod = len(_mod["vertices"])
+        _bv5 = barrier["vertices"]
+        _reseated = 0
+        for _s5 in range(0, len(_bv5), _nv_mod):
+            _blk = _bv5[_s5:_s5 + _nv_mod]
+            _base5 = min(v[1] for v in _blk)
+            _cx5 = sum(v[0] for v in _blk) / len(_blk)
+            _cz5 = sum(v[2] for v in _blk) / len(_blk)
+            _g5 = _edge_surface_y(_cx5, _cz5, _base5)
+            if _g5 is None or abs(_g5 + 0.02 - _base5) > 3.5:
+                continue
+            _dy5 = (_g5 + 0.02) - _base5
+            if abs(_dy5) > 1e-4:
+                for _i5 in range(_s5, _s5 + len(_blk)):
+                    _x5, _y5, _z5 = _bv5[_i5]
+                    _bv5[_i5] = (_x5, _y5 + _dy5, _z5)
+                _reseated += 1
+        print(f"  concrete barriers: re-seated {_reseated} modules onto the exact edge surface")
     drop_over_road(barrier, "warning barriers", lo=-1.0, hi=3.5)
     # proximity trim: drop barrier tris pressing within 1.0 m of the MAIN carriageway at deck
     # height (flare tapers pull a handful of modules tighter than any real installation)

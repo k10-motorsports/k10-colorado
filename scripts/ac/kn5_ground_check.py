@@ -32,6 +32,51 @@ ROAD_GAP_M = 1.8    # floating-deck guard threshold
 ROAD_GAP_FRAC = 0.03  # allowed fraction of road samples over threshold (bridges)
 
 
+
+def _parse_tris(path: Path):
+    """(name, positions, indices) per mesh — verify_kn5._parse drops indices; the triangle-exact
+    ground check needs them."""
+    import struct as _st
+    d = Path(path).read_bytes()
+    o = [6]
+    def U(): v = _st.unpack_from("<I", d, o[0])[0]; o[0] += 4; return v
+    def I(): v = _st.unpack_from("<i", d, o[0])[0]; o[0] += 4; return v
+    def F(): v = _st.unpack_from("<f", d, o[0])[0]; o[0] += 4; return v
+    def B(): v = d[o[0]] != 0; o[0] += 1; return v
+    def BL(n): v = d[o[0]:o[0] + n]; o[0] += n; return v
+    def S(): n = U(); v = d[o[0]:o[0] + n]; o[0] += n; return v.decode("utf-8", "replace")
+    ver = I()
+    if ver > 5:
+        I()
+    for _ in range(I()):
+        I(); S(); BL(U())
+    for _ in range(U()):
+        S(); S(); BL(2); I()
+        for _ in range(U()):
+            S(); BL(40)
+        for _ in range(U()):
+            S(); I(); S()
+    out = []
+    def rd():
+        ncls = U(); name = S(); cc = U(); B()
+        if ncls == 1:
+            BL(64)
+            for _ in range(cc):
+                rd()
+        elif ncls == 2:
+            BL(3)
+            vc = U()
+            P = []
+            for _ in range(vc):
+                P.append(_st.unpack_from("<3f", d, o[0])); o[0] += 44
+            ic = U()
+            idx = list(_st.unpack_from(f"<{ic}H", d, o[0])); o[0] += ic * 2
+            U(); U(); F(); F(); BL(16); B()
+            out.append((name, P, idx))
+    rd()
+    return out
+
+
 def _bucket(name: str) -> str | None:
     up = name.upper()
     for b in BUCKETS:
@@ -166,13 +211,35 @@ def check(project_dir: str | Path) -> dict:
         if len(sheets) > 20:
             fails.append(f"terrain has {len(sheets)} double-sheet cells (phantom-clamp corruption)")
 
-    # BASE SEATING: every standing object's FOOT must touch the ground it stands on.
-    # Two measurement traps learned the hard way: (1) the search radius must exceed the grass grid
-    # spacing (~10 m) or sparse-vertex cells read as "no ground" (36% phantom no-ground on fences);
-    # (2) a mast ARM 9 m up forms its own 1.5 m column whose min-y is the arm itself — a column with
-    # a LOWER column of the same object within 3.5 m is an upper part, not a foot; skip it.
-    ground_all = hash_pts(kn5.get("1GRASS", []) + kn5.get("1ROAD_SHOULDER", [])
-                          + kn5.get("1ROAD_MAIN", []), cell=8.0)
+    # BASE SEATING — TRIANGLE-EXACT. Vertex-based proximity checks under-measure floats on any
+    # slope (nearest vert below can be metres away and lower than the surface at the foot's exact
+    # XZ): Sand Creek shipped 100% of its barriers hovering +0.59 m median while the vertex gate
+    # read +0.15. Feet are measured against the barycentric surface of the actual ground TRIANGLES.
+    # Still excluded: mast arms (a column with a lower column of the same object within 3.5 m).
+    tri_h = defaultdict(list)
+    for _mn, _mp, _mi in _parse_tris(kn5p):
+        if _mn.upper().startswith(("1ROAD", "1GRASS")):
+            for _t in range(0, len(_mi) - 2, 3):
+                _a, _b, _c = _mp[_mi[_t]], _mp[_mi[_t + 1]], _mp[_mi[_t + 2]]
+                tri_h[(int((_a[0] + _b[0] + _c[0]) / 3 // 8),
+                       int((_a[2] + _b[2] + _c[2]) / 3 // 8))].append((_a, _b, _c))
+
+    def tri_surf(x, z, y_near):
+        best = None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for a, b, c2 in tri_h.get((int(x // 8) + di, int(z // 8) + dj), ()):
+                    d0 = (b[2] - c2[2]) * (a[0] - c2[0]) + (c2[0] - b[0]) * (a[2] - c2[2])
+                    if abs(d0) < 1e-12:
+                        continue
+                    w0 = ((b[2] - c2[2]) * (x - c2[0]) + (c2[0] - b[0]) * (z - c2[2])) / d0
+                    w1 = ((c2[2] - a[2]) * (x - c2[0]) + (a[0] - c2[0]) * (z - c2[2])) / d0
+                    w2 = 1 - w0 - w1
+                    if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                        yv = w0 * a[1] + w1 * b[1] + w2 * c2[1]
+                        if abs(yv - y_near) < 25 and (best is None or yv > best):
+                            best = yv
+        return best
     for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
                      ("GANTRY", "pylons"), ("SIGNPOST", "signposts")):
         pts_b = kn5.get(b, [])
@@ -191,27 +258,22 @@ def check(project_dir: str | Path) -> dict:
                 feet.append((kx * 1.5, base, kz * 1.5))
         gaps2, nog = [], 0
         for x, base, z in feet:
-            best = None
-            ci, cj = int(x // 8.0), int(z // 8.0)
-            for di in (-2, -1, 0, 1, 2):
-                for dj in (-2, -1, 0, 1, 2):
-                    for rx, ry, rz in ground_all.get((ci + di, cj + dj), ()):
-                        if (x - rx) ** 2 + (z - rz) ** 2 <= 144 and ry < base + 0.6:
-                            best = ry if best is None else max(best, ry)
-            if best is None:
+            g2 = tri_surf(x, z, base)
+            if g2 is None:
                 nog += 1
             else:
-                gaps2.append(base - best)
+                gaps2.append(base - g2)
         gaps2.sort()
         n2 = len(gaps2)
+        med = gaps2[n2 // 2] if n2 else 0.0
         p95 = gaps2[19 * n2 // 20] if n2 else 0.0
-        big = sum(1 for g2 in gaps2 if g2 > 3.0)
+        big = sum(1 for g2 in gaps2 if g2 > 0.35)
         bigf = big / max(1, n2)
         nogf = nog / max(1, n2 + nog)
-        print(f"  {label:9s} feet {n2+nog:5d}: no-ground {100*nogf:4.1f}%  "
-              f"base-gap p95 {p95:+.2f}  >3m {big} ({100*bigf:.1f}%)")
-        if p95 > 1.2 or bigf > 0.01 or nogf > 0.08:
-            fails.append(f"{label}: p95 {p95:.2f} >3m {100*bigf:.1f}% no-ground {100*nogf:.0f}%")
+        print(f"  {label:9s} feet {n2+nog:5d}: no-ground {100*nogf:4.1f}%  gap median {med:+.2f}  "
+              f"p95 {p95:+.2f}  floating>0.35m {big} ({100*bigf:.1f}%)")
+        if med > 0.25 or p95 > 0.5 or bigf > 0.01 or nogf > 0.10:
+            fails.append(f"{label}: median {med:.2f} p95 {p95:.2f} floating {100*bigf:.1f}%")
 
     # LAMP INTEGRITY: every lens cluster (LIGHTS) must have a mast (LIGHTPOST) under it that reaches
     # it — an orphan head floats in the sky AND its clustered CSP light becomes a mid-air floodlight
