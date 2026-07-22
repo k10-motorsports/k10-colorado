@@ -175,11 +175,19 @@ def build(track_dir: Path) -> Path:
         print(f"[build_kn5] real-world texture overrides: {sorted(overrides)}")
     mat_file = data / "materials.json"
     mats = json.loads(mat_file.read_text())["materials"] if mat_file.exists() else {}
+    # Vegetation billboards get AC's ksTree shader. Billboard planes have camera-facing normals, so
+    # under the default per-pixel shader every CSP streetlight hits them at FULL intensity from any
+    # angle — the Lariat's roadside forest glowed radioactive green at night while the road pools
+    # looked correct (they were tuned on real ground). ksTree treats vegetation normals as up-facing,
+    # so a downward lamp cone grazes trees like it grazes ground. Signs/fences stay standard-lit.
+    VEG = ("CONIFER", "TREES", "BUSHES", "PALMS")
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         mat = pbr.setup_material(bpy, ob, overrides=overrides)
         prefix = next((p for p in mats if ob.name.upper().startswith(p.upper())), None)
         if prefix:
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
+        elif ob.name.upper().startswith(VEG):
+            mat["shaderName"] = "ksTree"
 
     # Pack the textures INTO the .blend so it's self-contained and portable to another machine
     # (the image nodes point at this repo's assets/textures/, which won't exist on a Windows box).

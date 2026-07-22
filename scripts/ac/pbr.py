@@ -60,6 +60,20 @@ TEXTURES = {
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
 BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS", "EUROSIGN"}
 
+# Shader property overrides written into the kn5 material (export_kn5_addon persistence INI).
+# WHY: materials shipped with NO properties -> AC falls back to shader defaults (ksDiffuse ~1.0).
+# Vegetation billboards at full diffuse response turned the Lariat's roadside forest radioactive
+# green under the streetlight cones while the pools on the near-black asphalt looked correct.
+# Real AC vegetation runs ksAmbient-heavy / ksDiffuse-low (LA Canyons convention) so directional
+# light (sun OR CSP lamps) grazes it instead of blasting it. Fence wood damped for the same reason.
+KS_PROPS = {
+    "CONIFER":  {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "TREES":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "BUSHES":   {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "PALMS":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "FENCEWOOD": {"ksAmbient": 0.45, "ksDiffuse": 0.35, "ksSpecular": 0.05, "ksSpecularEXP": 8.0},
+}
+
 
 def texture_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "assets" / "textures"
