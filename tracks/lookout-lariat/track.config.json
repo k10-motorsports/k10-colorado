@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -39,7 +39,14 @@
       "id:484287799,1351773584,533503588,533503214"
     ],
     "_roads_doc": "Paradise Road is the historic Lariat Loop leg through the Mount Vernon townsite \u2014 it tees off Lookout Mountain Rd and drops to US-40 at the exit-256 junction. Without it there is a 1.1 km hole (Lookout Mtn Rd itself never touches US-40). The id: entry is the US-6 northbound off-ramp at the 19th St interchange \u2014 19th St crosses US-6 on a bridge, so closing the ring mainline-to-bridge directly creates a fake 6.5 m vertical step (a 17% launch ramp at start/finish); the lap must climb the real ramp.",
-    "connectors": {}
+    "connectors": {},
+    "wide_corners": [
+      {
+        "station_m": 262,
+        "width_m": 14.0,
+        "_doc": "Kevin: 'the turn on the mountain route is impossible' \u2014 base-of-climb 90deg kink, 2-4 turns ahead of the start; same geometry as a switchback so it needs a human call"
+      }
+    ]
   },
   "loop": true,
   "default_width_m": 7.0,
@@ -78,7 +85,7 @@
       "enabled": false
     },
     "fill_bias": 2.4,
-    "lamp_model": true,
+    "lamp_model": "street_lamp_new.obj",
     "fences": [
       {
         "start_m": 7600,
@@ -123,17 +130,19 @@
       ],
       "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
     },
-    "lamp_height_m": 9.0,
+    "lamp_height_m": 5.5,
     "forest3d": {
       "module": "pine",
-      "spacing_m": 24.0,
+      "spacing_m": 20.0,
       "off_min_m": 7.0,
-      "off_max_m": 26.0,
-      "cap": 700,
+      "off_max_m": 40.0,
+      "cap": 900,
       "scale_min": 2.2,
       "scale_max": 4.2,
       "_doc": "real 3D pines in the driver's corridor; billboards carry the slopes"
-    }
+    },
+    "fence_auto": true,
+    "fill_off_min_extra_m": 12.0
   },
   "origin": "centroid",
   "surfaces": {
@@ -191,6 +200,13 @@
       "diffuse": "assets/textures/grass_diffuse.jpg",
       "normal": "assets/textures/grass_normal.jpg",
       "_doc": "Alpine grass instead of dry dirt (Kevin) - mesh stays 1GRASS so physics, audits and GrassFX are untouched; GrassFX (lighting.grassfx) grows 3D blades on it."
+    },
+    "LIGHTPOST": {
+      "diffuse": "assets/textures/street_lamp_new.png",
+      "_doc": "the purpose-modeled lamp's own skin (emissive baked, opacity alpha)"
+    },
+    "LAMPHEAD": {
+      "diffuse": "assets/textures/street_lamp_new.png"
     }
   },
   "road_markings": {

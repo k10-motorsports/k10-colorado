@@ -182,7 +182,7 @@ def generate(project_dir: str | Path) -> Path:
                         f"SPOT = {sl_spot}", f"SPOT_SHARPNESS = {sl_sharp}",
                         f"RANGE = {sl_r}", f"RANGE_GRADIENT_OFFSET = {sl_grad}",
                         f"SPECULAR_MULT = {sl_spec}",
-                        "FADE_AT = 450", "FADE_SMOOTH = 80",
+                        "FADE_AT = 1200", "FADE_SMOOTH = 200",
                         "CONDITION = NIGHT_SMOOTH", ""]
             print(f"  [ext_config] {len(heads)} per-lamp [LIGHT_N] entries clustered from the kn5")
         else:

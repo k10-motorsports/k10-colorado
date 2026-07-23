@@ -269,11 +269,17 @@ def audit(project_dir: str | Path) -> dict:
     #    (>2.5 m) past its OWN road edge, so a wall vert within 2.5 m of a road vert (at similar height) is
     #    on a DIFFERENT road (a median wall on the opposing carriageway, or a wall tangled across a road at
     #    an interchange — covers "walls crossing over others" + "walls passing onto the road").
+    # FOOTPRINT-exact (like B): pavement of the MAIN carriageway exists directly under the wall
+    # vert at its own height. Vertex-radius false-flagged fences standing legally beside
+    # junction-flare ramps (206 phantoms on Sand Creek 0.23).
+    main_tris = _obj_tris(data / "track.obj", ("1ROAD_MAIN",))
+    if not main_tris:
+        main_tris = road_tris
+    main_th = _tri_hash(main_tris, 8.0)
     wall_on_road = 0
     for x, y, z in g["1WALL"]:
-        # vs the MAIN carriageway only: barriers legitimately stand ON the shoulder (1ROAD_shoulder
-        # is in the full road set), so testing against it flagged every barrier as on-road.
-        if any(abs(y - ry) < 1.2 for ry in nearest_y(mainroad_hash4, x, z, 1.0, 4.0)):
+        ry = _surf_at(main_th, 8.0, x, z, y, dy_max=1.2)
+        if ry is not None and abs(y - ry) < 1.2:
             wall_on_road += 1
     # E. wall-float — the BASE of a wall (min y per 0.6 m column) sitting above the ground/road beneath it.
     wall_col = defaultdict(lambda: 1e9)
@@ -339,8 +345,16 @@ def audit(project_dir: str | Path) -> dict:
                 if k not in col or y < col[k][0]:
                     col[k] = (y, x, z)
         prop_float = 0
-        for by, bx, bz in col.values():
+        _keys = list(col.keys())
+        _grounded = {k for k in _keys if col[k][0] <= ground_surf(col[k][1], col[k][2]) + 0.7}
+        for k in _keys:
+            by, bx, bz = col[k]
             if by > ground_surf(bx, bz) + 0.7:
+                # canopy-corner columns: a wide billboard's outer quad verts have no base verts
+                # in their own 0.8 m column — grounded-neighbor rule (same as E's rail fix)
+                if any((k[0] + di, k[1] + dj) in _grounded
+                       for di in range(-6, 7) for dj in range(-6, 7)):
+                    continue
                 prop_float += 1
 
     # H. ground-above-deck at the SURFACE level — bilinear-sample the conformed ground (the actual

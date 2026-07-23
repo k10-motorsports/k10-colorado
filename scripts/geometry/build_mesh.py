@@ -420,37 +420,74 @@ def build(project_dir: str | Path) -> dict:
         _stp.append(_stp[-1] + math.hypot(centerline[_i][0] - centerline[_i - 1][0],
                                           centerline[_i][2] - centerline[_i - 1][2]))
 
+
+    _xyp = [(q[0], q[2]) for q in centerline]
+
     def _hdp(i):
-        a, b = max(0, i - 3), min(len(centerline) - 1, i + 3)
+        a, b = max(0, i - 2), min(len(centerline) - 1, i + 2)
         return math.atan2(centerline[b][2] - centerline[a][2], centerline[b][0] - centerline[a][0])
+
+    def _kink_p(i):
+        j0 = i
+        while j0 > 0 and _stp[i] - _stp[j0] < 15.0:
+            j0 -= 1
+        j1 = i
+        while j1 < len(centerline) - 1 and _stp[j1] - _stp[i] < 15.0:
+            j1 += 1
+        return abs((math.degrees(_hdp(j1) - _hdp(j0)) + 180.0) % 360.0 - 180.0)
 
     _apexes = []
     _i = 0
     while _i < len(centerline):
-        _j0 = _i
-        while _j0 > 0 and _stp[_i] - _stp[_j0] < 15.0:
-            _j0 -= 1
-        _j1 = _i
-        while _j1 < len(centerline) - 1 and _stp[_j1] - _stp[_i] < 15.0:
-            _j1 += 1
-        _dp = abs((math.degrees(_hdp(_j1) - _hdp(_j0)) + 180.0) % 360.0 - 180.0)
-        if _dp > 110.0:
+        if _kink_p(_i) > 110.0:
             _apexes.append(_i)
-            _i = _j1 + 10
+            _iend = _i
+            while _iend < len(centerline) - 1 and _stp[_iend] - _stp[_i] < 30.0:
+                _iend += 1
+            _i = _iend
             continue
         _i += 1
+    _declared = []
+    for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
+        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - float(_wc["station_m"])))
+        _declared.append(_si)
+        if all(abs(_stp[_si] - _stp[a]) > 30.0 for a in _apexes):
+            _apexes.append(_si)
+    # rc10-proven treatment: LOCAL ±40 m plateau at each fold apex, at its own height.
     for _ax in _apexes:
         _ay = centerline[_ax][1]
         for _i in range(len(centerline)):
             _d = abs(_stp[_i] - _stp[_ax])
             if _d < 40.0:
                 _t = _d / 40.0
-                _w = 1.0 - (_t * _t * (3.0 - 2.0 * _t))    # smoothstep: 1 at apex, 0 at 40 m
+                _w = 1.0 - (_t * _t * (3.0 - 2.0 * _t))
                 x, y, z = centerline[_i]
                 centerline[_i] = (x, y * (1.0 - _w) + _ay * _w, z)
     if _apexes:
-        print(f"  [u-turn plateau] {len(_apexes)} fold apex(es) leveled (+-40 m smoothstep)")
+        print(f"  [fold plateaus] {len(_apexes)} apex(es) leveled locally "
+              f"(declared: {[round(_stp[m]) for m in _declared]})")
+    # discs help exactly where the fold zone is FLAT (valley junctions: rims meet the plateau
+    # cleanly; the U-complex bin vanished with discs) and hurt on GRADED mountain folds (rims
+    # step against residual camber: +6/km when every fold got one). Grade decides.
+    _disc_apexes = []
+    for _ax in _apexes:
+        _i0d = min(range(len(centerline)), key=lambda k: abs(_stp[k] - max(0.0, _stp[_ax] - 60.0)))
+        _i1d = min(range(len(centerline)), key=lambda k: abs(_stp[k] - min(_stp[-1], _stp[_ax] + 60.0)))
+        _run_m = max(1.0, _stp[_i1d] - _stp[_i0d])
+        if abs(centerline[_i1d][1] - centerline[_i0d][1]) / _run_m < 0.025:
+            _disc_apexes.append(_ax)
+    print(f"  [fold pads] discs at {len(_disc_apexes)}/{len(_apexes)} apexes (flat zones only)")
     bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
+    if bnk is not None and _apexes:
+        _fold_arcs = [_stp[_a] for _a in _apexes]
+        _bnk_inner = bnk
+
+        def bnk(arc):   # noqa: F811 — crossfall fades to flat through fold bowls (opposite-sign
+            d = min((abs(arc - fa) for fa in _fold_arcs), default=1e9)   # overlap steps: w x 2 x bank)
+            if d >= 55.0:
+                return _bnk_inner(arc)
+            t = max(0.0, (d - 25.0) / 30.0)
+            return _bnk_inner(arc) * (t * t * (3.0 - 2.0 * t))
     # MEASURED cross-slope (data/crossfall.json, from lateral 1 m-DEM pairs): real superelevation,
     # dead-banded + capped at 6% so the car never launches. Only when the track has no hand-authored
     # cambers (PPIR's oval banking stays authoritative). Sign: file is +ve = left-edge-up in the
@@ -601,6 +638,26 @@ def build(project_dir: str | Path) -> dict:
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
     road = ribbon.road_ribbon(centerline, widths, tile_m=4.0, bank_at=bnk)  # 4 m = the Lake Murray asphalt scale
+    # FOLD PADS: at fold apexes the swept ribbon's fans double-cover with pleated heights no
+    # matter how flat the profile — a >105 deg corner at 14-18 m width cannot be a ribbon. Lay a
+    # flat paved DISC (fan) 1 cm proud over each fold: it becomes the drivable top surface, one
+    # plane, zero steps. The profile is already plateaued there so the rim meets the approaches.
+    for _ax in _disc_apexes:
+        _cx, _cy, _cz = centerline[_ax]
+        _rr = widths[_ax] / 2.0 + 3.0
+        _b0 = len(road["vertices"])
+        road["vertices"].append((_cx, _cy + 0.012, _cz))
+        road["uvs"].append((_cx / 4.0, _cz / 4.0))
+        _NS = 28
+        for _k in range(_NS):
+            _a = 2.0 * math.pi * _k / _NS
+            _px, _pz = _cx + _rr * math.cos(_a), _cz + _rr * math.sin(_a)
+            road["vertices"].append((_px, _cy + 0.012, _pz))
+            road["uvs"].append((_px / 4.0, _pz / 4.0))
+        for _k in range(_NS):
+            road["tris"].append((_b0, _b0 + 1 + _k, _b0 + 1 + (_k + 1) % _NS))
+    if _disc_apexes:
+        print(f"  [fold pads] {len(_disc_apexes)} paved discs over fold apexes (r = w/2 + 3)")
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     # runoff.enabled=false skips it — a flat apron "at graded terrain height" makes sense beside a
@@ -1238,7 +1295,7 @@ def build(project_dir: str | Path) -> dict:
                 _nx17, _nz17 = _sc["n"]
                 for _off17, _hy17 in ((-0.2, -0.15), (-0.2, 0.5), (0.2, 0.5), (0.2, -0.15)):
                     para_mesh["vertices"].append((_vx + _nx17 * _off17, _vy + _hy17, _vz + _nz17 * _off17))
-                    para_mesh["uvs"].append((_sc["arc"] / 1.5, (_hy17 + 0.15) / 0.65))
+                    para_mesh["uvs"].append((_sc["arc"] / 0.75, (_hy17 + 0.15) / 0.65))
             for _q in range(len(_run) - 1):
                 _r0, _r1 = _bs17 + _q * 4, _bs17 + (_q + 1) * 4
                 for _f0, _f1 in ((0, 1), (1, 2), (2, 3)):   # inner face, cap, outer face
@@ -1261,9 +1318,9 @@ def build(project_dir: str | Path) -> dict:
                     _vx, _vy, _vz = _sc["verge"]
                     _mx, _my, _mz = _sc["meet"]
                     _skin["vertices"].append((_vx + _nx17 * 0.05, _vy, _vz + _nz17 * 0.05))
-                    _skin["uvs"].append((_sc["arc"] / 2.5, 0.0))
+                    _skin["uvs"].append((_sc["arc"] / 1.25, 0.0))
                     _skin["vertices"].append((_mx + _nx17 * 0.05, _my, _mz + _nz17 * 0.05))
-                    _skin["uvs"].append((_sc["arc"] / 2.5, _sc["drop"] / 2.5))
+                    _skin["uvs"].append((_sc["arc"] / 1.25, _sc["drop"] / 1.25))
                 for _q in range(len(_run) - 1):
                     _r0, _r1 = _bs17 + _q * 2, _bs17 + (_q + 1) * 2
                     _skin["tris"].append((_r0, _r0 + 1, _r1 + 1))
@@ -1290,7 +1347,7 @@ def build(project_dir: str | Path) -> dict:
 
     def _fast_approach(idx):
         a = idx
-        while a > 0 and _stb[idx] - _stb[a] < 300.0:
+        while a > 0 and _stb[idx] - _stb[a] < 350.0:
             a -= 1
         worst = 0.0
         j = a
@@ -1301,12 +1358,31 @@ def build(project_dir: str | Path) -> dict:
 
     _keep_spots, _fence_spots = [], []
     for _sp in barrier_spots:
-        danger = (abs(_sp.get("turn_deg", 0)) >= 70 and _fast_approach(_sp["start_idx"])) \
-                 or (_sp.get("crest") and abs(_sp.get("turn_deg", 0)) >= 45)
+        # Kevin: concrete ONLY at tight straights into curves — a long fast approach meeting a
+        # hard corner. Everything else (including crest-only corners) gets fences.
+        danger = abs(_sp.get("turn_deg", 0)) >= 70 and _fast_approach(_sp["start_idx"])
         (_keep_spots if danger else _fence_spots).append(_sp)
     print(f"  barriers: {len(_keep_spots)} danger runs keep concrete; "
           f"{len(_fence_spots)} runs become wooden fences")
     barrier_spots = _keep_spots
+    if cfg_raw.get("scenery", {}).get("fence_auto"):
+        import bisect
+        # "I really want fences, just regular fences in most places": right-of-way runs fill the
+        # stretches between warning runs — 140 m of fence every 260 m, alternating sides.
+        _lap_end = _stb[-1]
+        _busy = [( _stb[_sp["start_idx"]] - 25.0, _stb[min(_sp["end_idx"], len(_stb) - 1)] + 25.0)
+                 for _sp in (_keep_spots + _fence_spots)]
+        _s0f = 60.0
+        _fi = 0
+        while _s0f + 140.0 < _lap_end:
+            _s1f = _s0f + 140.0
+            if not any(a < _s1f and _s0f < b for a, b in _busy):    # never double up with warning runs
+                _i0f = bisect.bisect_left(_stb, _s0f)
+                _fence_spots.append({"start_idx": _i0f,
+                                     "end_idx": bisect.bisect_left(_stb, _s1f),
+                                     "side": 1 if _fi % 2 == 0 else -1, "auto": True})
+            _s0f += 260.0
+            _fi += 1
     fence_wood = {"vertices": [], "uvs": [], "tris": []}
     if _fence_spots:
         from scripts.environment import props as _props_f
@@ -1314,12 +1390,26 @@ def build(project_dir: str | Path) -> dict:
         if _wf_path.exists():
             _wf_mod = _props_f.load_module(_wf_path)
             _ranges = [{"start_m": _stb[_sp["start_idx"]], "end_m": _stb[min(_sp["end_idx"], len(_stb) - 1)],
-                        "side": int(_sp["side"]), "offset_m": 3.0} for _sp in _fence_spots]
+                        "side": int(_sp["side"]), "offset_m": 4.2} for _sp in _fence_spots]
             # max_dy=3.5: a fence rides near its own road grade — a bank/creek drop under a
             # module means bridge territory, skip it (one panel shipped floating +1.62 m).
+            def _on_pavement_f(px, pz, py):
+                for _t in _rc7.get((int(px // 4.0), int(pz // 4.0)), ()):
+                    _a, _b, _c = _rv7[_t[0]], _rv7[_t[1]], _rv7[_t[2]]
+                    _d = (_b[2] - _c[2]) * (_a[0] - _c[0]) + (_c[0] - _b[0]) * (_a[2] - _c[2])
+                    if abs(_d) < 1e-12:
+                        continue
+                    _w0 = ((_b[2] - _c[2]) * (px - _c[0]) + (_c[0] - _b[0]) * (pz - _c[2])) / _d
+                    _w1 = ((_c[2] - _a[2]) * (px - _c[0]) + (_a[0] - _c[0]) * (pz - _c[2])) / _d
+                    _w2 = 1.0 - _w0 - _w1
+                    if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
+                        _yy = _w0 * _a[1] + _w1 * _b[1] + _w2 * _c[1]
+                        if abs(_yy - py) <= 3.0:
+                            return True
+                return False
             fence_wood = _props_f.instance_line(centerline, _wf_mod, ranges=_ranges, widths_m=widths,
                                                 ground=lambda x, z: _grid_trisurf(grid_xyz, x, z),
-                                                module_len=1.73, max_dy=3.5)
+                                                module_len=1.73, max_dy=3.5, reject=_on_pavement_f)
     if cfg_raw.get("props", {}).get("concrete_barriers"):
         # Kevin's 4 m concrete barrier modules replace the procedural swept jersey — real geometry,
         # instanced along the SAME warning-barrier runs, shipped physical as 1WALL_* (collidable).
@@ -1375,6 +1465,7 @@ def build(project_dir: str | Path) -> dict:
                         best3 = _y3
             return best3
         barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod,
+                                              on_pavement=_on_pavement_f,
                                               surface_y=_edge_surface_y)
         barrier_group = ("1WALL_barrier", "kerb")
         print(f"  concrete barriers: {len(barrier['vertices'])} verts instanced over {len(barrier_spots)} runs")

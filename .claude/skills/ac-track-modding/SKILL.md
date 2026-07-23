@@ -114,6 +114,23 @@ one-shotting is a CONFIG exercise, not a code exercise.
   (footprint-exact, steep-tri-aware), kn5 verify (footprint-exact poke), fidelity (weld, double-
   sheet 0, per-class 0% hover, deck-vs-mountain), hash-verified zips, new tag per build.
 
+### The corner doctrine (a full day of builds — do NOT relearn)
+- A swept ribbon CANNOT carry junction-width pavement through a fold: every auto-widened fold
+  ships pleated fan steps. Fold corners are geometrically IDENTICAL to switchbacks (both ~12 m
+  apex radius) — no heuristic separates them; the difference is driver judgment.
+- Therefore: auto treatment only for EXTREME folds (>110 deg over ±15 m): a MODEST 10 m floor
+  (taper-aware, 18 m hold) + a local ±40 m plateau. Driver-flagged corners are DECLARED in
+  `route.wide_corners: [{station_m, width_m}]` and additionally get a paved DISC.
+- Discs only on FLAT fold zones (<2.5% across ±60 m): rims step against camber on graded folds.
+- Complexes: adjacent kinks <150 m apart cluster; near-coplanar crossing legs (Δy<=2.5 m,
+  valley junctions) level to ONE plane over their full adjacency span; stacked stairs keep
+  per-kink local bowls (flattening a stair dumps its climb into the blends).
+- Gates: fold >110 deg needs CORE width >= 9 (max within ±20 m — the line uses the core, the
+  taper edge is not the corner). Severe/bump steps at |off|>3.5 on >=9.5 m pavement are APRON
+  texture (reported separately, not gated) — real aprons have rolled crossfall breaks; mid-lane
+  gating stays absolute. Furniture near flares: span-max widths, pavement-reject (fences skip,
+  barriers WALK OUTBOARD), 4.2 m fence offsets.
+
 ### Hard-won placement rules (each cost a build cycle — bake into any new pass)
 - **Trees**: clearance is canopy-aware (`off += canopy_half x scale`) and checked against
   EVERY nearby leg within the height layer, not just the leg that placed the tree

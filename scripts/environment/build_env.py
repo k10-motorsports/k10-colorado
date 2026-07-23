@@ -721,7 +721,8 @@ def build(project_dir: str | Path) -> dict:
                 for _ in range(f_per):
                     if ntrees >= t_cap or _tf.random() > p_keep:
                         continue
-                    off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) + 2.0 \
+                    off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) \
+                        + float(scn.get("fill_off_min_extra_m", 2.0)) \
                         + _tf.random() ** float(scn.get("fill_bias", 1.6)) * f_range
                     rx, rz = x + nx * off * side, z + nz * off * side
                     if on_road(rx, rz):
@@ -912,8 +913,9 @@ def build(project_dir: str | Path) -> dict:
     _lamp_module = None
     _lens_module = None
     _lamp_fixture = (0.0, 9.75, 0.0)   # (module-x, height, module-z) of the emitter
-    if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
-        _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
+    _lamp_obj = scn.get("lamp_model") if isinstance(scn.get("lamp_model"), str) else "lamp_post.obj"
+    if (_models / _lamp_obj).exists() and scn.get("lamp_model", True):
+        _lamp_module = props_mod.load_module(_models / _lamp_obj)
         # MOUNTING HEIGHT (Kevin: "they might be too tall"): the model is a 10.5 m highway mast;
         # real urban/collector streets run 8-9 m. Vertical scale only — arm reach/thickness stay.
         _lamp_h = float(scn.get("lamp_height_m", 9.0))
@@ -946,7 +948,7 @@ def build(project_dir: str | Path) -> dict:
                     nt.append(j)
                 dest["tris"].append(tuple(nt))
             return lo, hi
-        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 6.9)
+        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 0.78 * _lamp_h)
         # the WHOLE head (luminaire base ~7.4 m after the 9 m scale) goes to LAMPHEAD, and the
         # head is DOUBLE-SIDED: the model's shell normals face inward on part of the housing, so
         # single-sided culling erased the top from most angles ("pole tops are still invisible").
@@ -1053,7 +1055,44 @@ def build(project_dir: str | Path) -> dict:
             sx3, sz3 = x2 - tz2 * -(widths[i2] / 2 + 2.2), z2 + tx2 * -(widths[i2] / 2 + 2.2)
             if not on_surface(sx3, sz3):
                 _euro_sign(sx3, sz3, int(sp2.get("face", 0)), -tx2, -tz2)
-        print(f"  euro signs: {len(sign_plates['vertices']) // 4} placed")
+        # DANGER BOARDS at the extreme entries (long straight into a hairpin): a red light-grid
+        # board on posts, 60 m before the corner. Static bright-red emissive for now — swaps to
+        # Kevin's flashing-light model when it lands (CSP animation then).
+        danger_boards = {"vertices": [], "uvs": [], "tris": []}
+        _nboards = 0
+        for _sp in _spots:
+            if abs(_sp.get("turn_deg", 0)) < 90:
+                continue
+            i2 = max(1, _sp["start_idx"] - 20)
+            x2, _, z2 = loop[i2]
+            a2, b3 = loop[i2 - 1], loop[min(len(loop) - 1, i2 + 1)]
+            tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
+            L2 = math.hypot(tx2, tz2) or 1e-9
+            tx2, tz2 = tx2 / L2, tz2 / L2
+            nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
+            bx2, bz2 = x2 + nx2 * (widths[i2] / 2 + 2.6), z2 + nz2 * (widths[i2] / 2 + 2.6)
+            if on_surface(bx2, bz2):
+                continue
+            gyb = ground_y(bx2, bz2)
+            V, U, T = danger_boards["vertices"], danger_boards["uvs"], danger_boards["tris"]
+            bb = len(V)
+            px2, pz2 = -tz2, tx2
+            for sx2, sy2 in ((-1.2, 1.6), (1.2, 1.6), (1.2, 2.8), (-1.2, 2.8)):
+                V.append((bx2 + px2 * sx2, gyb + sy2, bz2 + pz2 * sx2))
+                U.append(((sx2 + 1.2) / 2.4, (sy2 - 1.6) / 1.2))
+            T.extend([(bb, bb + 1, bb + 2), (bb, bb + 2, bb + 3),
+                      (bb, bb + 2, bb + 1), (bb, bb + 3, bb + 2)])
+            for _px in (-1.0, 1.0):
+                pb = len(V)
+                for dx2, dz2 in ((-0.05, -0.05), (0.05, -0.05), (0.05, 0.05), (-0.05, 0.05)):
+                    V.append((bx2 + px2 * _px + dx2, gyb, bz2 + pz2 * _px + dz2))
+                    V.append((bx2 + px2 * _px + dx2, gyb + 1.7, bz2 + pz2 * _px + dz2))
+                    U.extend([(0.5, 0.5)] * 2)
+                for k2 in range(4):
+                    a3, b4 = 2 * k2, 2 * ((k2 + 1) % 4)
+                    T.extend([(pb + a3, pb + b4, pb + b4 + 1), (pb + a3, pb + b4 + 1, pb + a3 + 1)])
+            _nboards += 1
+        print(f"  euro signs: {len(sign_plates['vertices']) // 4} placed; danger boards: {_nboards}")
 
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     # Split geometry: the mast (LIGHTPOST, dark) and the lamp head (LIGHTS, emissive) are separate meshes
@@ -1323,6 +1362,7 @@ def build(project_dir: str | Path) -> dict:
                *split_mesh_under_cap("FENCEWOOD", "road", ranch_fences),
                *split_mesh_under_cap("GANTRY_pylons", "road", pylon_line),
                ("USSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
+               ("DANGERLITE_boards", "road", danger_boards if rs_cfg.get("enabled") else {"vertices": [], "uvs": [], "tris": []}),
                *[g for nm3, m3 in (forest3d_meshes.items() if f3 else [])
                  for g in split_mesh_under_cap(nm3, "grass", m3)],
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),

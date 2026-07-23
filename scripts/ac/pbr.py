@@ -46,6 +46,7 @@ TEXTURES = {
     "LAMPNEW": ("street_lamp_new.png", None, 0.55, (0.30, 0.31, 0.33, 1), 0.25, False),  # purpose-modeled street lamp (emissive baked into diffuse, opacity in alpha)
     "EUROSIGN": ("eurosign_atlas.png", None, 0.5, (0.85, 0.85, 0.85, 1), 0.1, False),  # circular sign faces, alpha-cut (scenery.road_signs)
     "USSIGN": ("mutcd_atlas.png", None, 0.5, (0.94, 0.70, 0.14, 1), 0.1, False),  # MUTCD yellow-diamond curve/hairpin warnings (Kevin: signage where turns irl are)
+    "DANGERLITE": ("solid_red_glow.png", None, 0.3, (1.0, 0.10, 0.06, 1), 0.0, False),  # danger boards at extreme straight-into-hairpin entries (flashing model TBD from Kevin)
     "CONTAINER": ("container_diffuse.jpg", "container_normal.jpg", 0.70, (0.55, 0.30, 0.26, 1), 0.0, False),  # mined Hamburg shipping-container stacks (warehouse yards)
     "CHAINLINK": ("chainlink_diffuse.png", None, 0.60, (0.55, 0.56, 0.58, 1), 0.30, False),  # procedural alpha-cutout chain-link (warehouse yard fences)
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)

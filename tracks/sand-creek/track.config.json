@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -97,8 +97,8 @@
       "flip_read": false,
       "flip_up": false
     },
-    "lamp_model": true,
-    "lamp_height_m": 9.0,
+    "lamp_model": "street_lamp_new.obj",
+    "lamp_height_m": 5.5,
     "forest3d": {
       "module": "poplar",
       "spacing_m": 42.0,
@@ -111,7 +111,8 @@
     },
     "road_signs": {
       "enabled": true
-    }
+    },
+    "fence_auto": true
   },
   "origin": "centroid",
   "true_north_rotation_deg": 180.0,
@@ -183,6 +184,13 @@
       "diffuse": "assets/textures/grass_diffuse.jpg",
       "normal": "assets/textures/grass_normal.jpg",
       "_doc": "Kevin: the Lariat's alpine grass look on Sand Creek too"
+    },
+    "LIGHTPOST": {
+      "diffuse": "assets/textures/street_lamp_new.png",
+      "_doc": "the purpose-modeled lamp's own skin (emissive baked, opacity alpha)"
+    },
+    "LAMPHEAD": {
+      "diffuse": "assets/textures/street_lamp_new.png"
     }
   }
 }

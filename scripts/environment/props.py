@@ -47,7 +47,7 @@ def load_module(path: str | Path) -> dict:
 
 def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placements: list[dict],
                       module: dict, *, module_len: float = 4.04, off_extra: float = 1.6,
-                      base_sink: float = 0.05, surface_y=None) -> dict:
+                      base_sink: float = 0.05, surface_y=None, on_pavement=None) -> dict:
     """Stamp the barrier module end-to-end along each warning-barrier run, on the run's OUTSIDE.
 
     ``surface_y(x, z) -> y|None`` seats each module on the BUILT edge surface (road+shoulder tops).
@@ -71,7 +71,20 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
             L = math.hypot(tx, tz) or 1e-9
             tx, tz = tx / L, tz / L
             nx, nz = -tz * side, tx * side              # outward on the run's side
-            off = widths_m[i] / 2.0 + off_extra
+            # width RAMPS through junction flares (0.15 m/m): a 4 m module placed off one
+            # station's width ends up INSIDE the widened lane a few metres later. Use the max
+            # width over the module's whole span.
+            _wspan = max(widths_m[max(0, i - 2):min(n, i + 3)] or [widths_m[i]])
+            off = _wspan / 2.0 + off_extra
+            if on_pavement is not None:
+                # a danger barrier must guard the corner, not stand on its flared apron:
+                # WALK OUTBOARD (up to +4 m) until the module base is off the pavement
+                for _try in range(5):
+                    if not on_pavement(x + nx * off, z + nz * off, y):
+                        break
+                    off += 1.0
+                else:
+                    continue
             bx, bz = x + nx * off, z + nz * off
             if surface_y is not None:
                 sy = surface_y(bx, bz, y)   # y_ref = the run's own station height (layer window)
@@ -92,19 +105,17 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
                 wz = bz + tz * mz + nz * mx
                 out["vertices"].append((wx, y - base_sink + my, wz))
             out["uvs"].extend(module["uvs"])
-            # side -1 mirrors the (tangent, normal) basis (handedness flip) — the stamped tris
-            # wind backwards and the run renders INSIDE-OUT (see-through from the road). Reverse
-            # the winding on mirrored sides so faces point outward everywhere.
-            if side < 0:
-                out["tris"].extend((a + base, c + base, b + base) for a, b, c in module["tris"])
-            else:
-                out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
+            # DOUBLE-SIDED stamping: mirrored bases flip winding, module normals are mixed, and
+            # "some barriers are still inside out" survived two winding fixes — end the class:
+            # every face ships both ways. Barrier tri counts are tiny; correctness wins.
+            out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
+            out["tris"].extend((a + base, c + base, b + base) for a, b, c in module["tris"])
     return out
 
 
 def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=None,
                   ground=None, module_len: float = 1.7, default_offset: float = 8.0,
-                  max_dy: float = 45.0) -> dict:
+                  max_dy: float = 45.0, reject=None) -> dict:
     """Instance a module continuously along config-declared lap ranges — ranch fences at the
     right-of-way line, pylon runs across the plains. Each instance drapes to ``ground(x,z)`` so
     runs follow the terrain. ranges: [{start_m, end_m, side (+1 left/-1 right/0 both), offset_m}]."""
@@ -132,7 +143,7 @@ def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=No
                 L = math.hypot(tx, tz) or 1e-9
                 tx, tz = tx / L, tz / L
                 nx, nz = -tz * side, tx * side
-                w_half = (widths_m[i] / 2.0 if widths_m else 0.0)
+                w_half = (max(widths_m[max(0, i - 3):min(len(widths_m), i + 4)]) / 2.0 if widths_m else 0.0)
                 bx, bz = x + nx * (w_half + off), z + nz * (w_half + off)
                 # seat on the MIN ground over the module's footprint (center + both ends): a
                 # center-point seat on a bank flies the downhill end of the panel (+1.6 m fence
@@ -154,9 +165,15 @@ def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=No
                 # footing sink (per-range): tall towers on rough terrain bury their footings — a
                 # 10 m-grid drape leaves a corner up to ~1 m proud of the true surface otherwise.
                 by -= float(rg.get("sink_m", 0.0))
+                if reject is not None:
+                    _hl2 = module_len / 2.0
+                    if any(reject(bx + tx * _q, bz + tz * _q, by) for _q in (-_hl2, 0.0, _hl2)):
+                        continue        # module would stand on pavement (corner mouths, aprons)
                 base = len(out["vertices"])
                 for mx, my, mz in module["vertices"]:
                     out["vertices"].append((bx + tx * mz + nx * mx, by + my, bz + tz * mz + nz * mx))
                 out["uvs"].extend(module["uvs"])
                 out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
+                if module_len <= 10.0:      # panels are seen from both sides; pylons are closed solids
+                    out["tris"].extend((a + base, c + base, b + base) for a, b, c in module["tris"])
     return out
