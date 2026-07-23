@@ -854,7 +854,9 @@ def build(project_dir: str | Path) -> dict:
                     if d2 < best_d2:
                         best_d2, best_s = d2, cs
         return best_s
-    _FEATHER7 = 6.0
+    _FEATHER7 = 24.0            # embankment reach: a 2:1 fill face can carry an 11 m edge drop
+    _BENCH7 = 1.0               # flush bench beside the pavement before the face starts
+    _FILL_SLOPE7 = 0.5          # 2:1 (H:V) engineered fill, per docs/ROAD-CONSTRUCTION.md
     _hs7 = float(meta["spacing_m"]) * 0.55
 
     def _deck_window_min7(px, pz, y_ref):
@@ -882,10 +884,13 @@ def build(project_dir: str | Path) -> dict:
         printed a 0.2 m washboard into the feathered fill face.)"""
         best = None
         ci, cj = int(px // 4.0), int(pz // 4.0)
-        for di in (-2, -1, 0, 1, 2):
-            for dj in (-2, -1, 0, 1, 2):
-                for t in _rc7.get((ci + di, cj + dj), ()):
-                    a, b, c = _rv7[t[0]], _rv7[t[1]], _rv7[t[2]]
+        _r7 = int(_FEATHER7 // 4.0) + 1
+        for di in range(-_r7, _r7 + 1):
+            for dj in range(-_r7, _r7 + 1):
+                _cell7 = (ci + di, cj + dj)
+                for t in [(_rv7[t7[0]], _rv7[t7[1]], _rv7[t7[2]]) for t7 in _rc7.get(_cell7, ())] \
+                        + list(_rc8.get(_cell7, ())):
+                    a, b, c = t
                     # closest point on tri in 2D: clamp to each edge, keep the nearest candidate
                     for (p1, p2) in ((a, b), (b, c), (c, a)):
                         ex, ez = p2[0] - p1[0], p2[2] - p1[2]
@@ -899,6 +904,49 @@ def build(project_dir: str | Path) -> dict:
         if best is None or best[0] > _FEATHER7 * _FEATHER7:
             return None, None
         return math.sqrt(best[0]), best[1]
+    # pavement beyond the main ribbon (shoulder/runoff/kerb) — its own tri hash, used for the
+    # two-sided under-shoulder pin AND as the fill-face anchor (the face must start at the
+    # shoulder HEM: anchoring at the road edge left grass 0.7-1.0 m below the shoulder — a
+    # daylight strip under the hem for kilometres, THE 'ribbon above the mountain' look).
+    _all8 = []
+    for _m8 in (shoulder, runoff, kerb):
+        for _t8 in _m8["tris"]:
+            _all8.append((_m8["vertices"][_t8[0]], _m8["vertices"][_t8[1]], _m8["vertices"][_t8[2]]))
+    _rc8: dict = _add7(list)
+    for _tt8 in _all8:
+        _xs8 = [_v[0] for _v in _tt8]; _zs8 = [_v[2] for _v in _tt8]
+        for _ci8 in range(int(min(_xs8) // 4.0), int(max(_xs8) // 4.0) + 1):
+            for _cj8 in range(int(min(_zs8) // 4.0), int(max(_zs8) // 4.0) + 1):
+                _rc8[(_ci8, _cj8)].append(_tt8)
+
+    def _shoulder_window_min8(px, pz, y_ref):
+        """Lowest shoulder/runoff/kerb surface within half a grid cell (9-point), layer-guarded."""
+        lo = None
+        for ox, oz in ((0.0, 0.0), (_hs7, 0.0), (-_hs7, 0.0), (0.0, _hs7), (0.0, -_hs7),
+                       (_hs7, _hs7), (-_hs7, -_hs7), (_hs7, -_hs7), (-_hs7, _hs7)):
+            for a, b, c in _rc8.get((int((px + ox) // 4.0), int((pz + oz) // 4.0)), ()):
+                d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if abs(d) < 1e-12:
+                    continue
+                w0 = ((b[2] - c[2]) * (px + ox - c[0]) + (c[0] - b[0]) * (pz + oz - c[2])) / d
+                w1 = ((c[2] - a[2]) * (px + ox - c[0]) + (a[0] - c[0]) * (pz + oz - c[2])) / d
+                w2 = 1.0 - w0 - w1
+                if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                    y = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                    if abs(y - y_ref) <= 20.0 and (lo is None or y < lo):
+                        lo = y
+        return lo
+
+    # coarse presence filter: only verts within one 24 m cell of any PAVEMENT triangle pay for
+    # the full closest-point scan (fine cells) — the rest of the 840k-vert grid skips in O(1).
+    _near7 = set()
+    for _t7 in road["tris"]:
+        for _v7 in _t7:
+            _near7.add((int(_rv7[_v7][0] // 24.0), int(_rv7[_v7][2] // 24.0)))
+    for _tt8 in _all8:
+        for _v8 in _tt8:
+            _near7.add((int(_v8[0] // 24.0), int(_v8[2] // 24.0)))
+    _near7 = {(ci + di, cj + dj) for (ci, cj) in _near7 for di in (-1, 0, 1) for dj in (-1, 0, 1)}
     _fixed7 = 0
     _feathered7 = 0
     for _i7 in range(len(_gv7)):
@@ -917,20 +965,21 @@ def build(project_dir: str | Path) -> dict:
                 if abs(_y7 - _gy7) <= 20.0 and (_best7 is None or _y7 < _best7):
                     _best7 = _y7
         if _best7 is None:
-            # outside the footprint: feather the pin down to natural ground over _FEATHER7 m so
-            # the transition is a graded fill face, not a vertical step at the pavement edge.
+            if (int(_gx7 // 24.0), int(_gz7 // 24.0)) not in _near7:
+                continue
+            # outside the footprint: EMBANKMENT FILL FACE, not a fade (Kevin: the ground must
+            # match the road, then fall away as real construction does — a 6 m fade back to the
+            # DEM read as 'a ribbon above the mountain'). 1 m flush bench at deck height, then a
+            # 2:1 engineered face that continues until it intersects natural ground. Uphill side
+            # (ground above the face) is untouched — that's the cut, handled by the clamps.
             _d7f, _ey7 = _closest_on_road7(_gx7, _gz7)
             if _ey7 is not None and abs(_ey7 - _gy7) <= 20.0:
-                # a cell can span the whole road: both verts outside the footprint, feathered to
+                # a cell can span the whole road: both verts outside the footprint would bench at
                 # deck-EDGE height, chord crossing ABOVE the cambered low side. Cap by window-min.
                 _wm7 = _deck_window_min7(_gx7, _gz7, _gy7)
                 if _wm7 is not None and _wm7 < _ey7:
                     _ey7 = _wm7
-                # smoothstep, not linear: zero-slope at both ends kills the crease the drive
-                # test reads as a kink at the deck edge and at the natural-ground end.
-                _t7f = _d7f / _FEATHER7
-                _w7f = 1.0 - (_t7f * _t7f * (3.0 - 2.0 * _t7f))
-                _tgt7 = (_ey7 - GRASS_CLEARANCE_M) * _w7f + _gy7 * (1.0 - _w7f)
+                _tgt7 = (_ey7 - GRASS_CLEARANCE_M) - _FILL_SLOPE7 * max(0.0, _d7f - _BENCH7)
                 if _tgt7 > _gy7:
                     _s7 = _near_station7(_gx7, _gz7)
                     if not (_s7 is not None and bridge_of(_s7)):
@@ -956,39 +1005,33 @@ def build(project_dir: str | Path) -> dict:
             _gv7[_i7] = (_gx7, _best7 - GRASS_CLEARANCE_M, _gz7)
             _fixed7 += 1
     if _fixed7 or _feathered7:
-        print(f"  [contact pin] {_fixed7} grass verts pinned to deck underside, {_feathered7} feathered at the edge")
-    # DOWN-ONLY pass over the rest of the pavement (shoulder/runoff/kerb): the pin covers the main
-    # ribbon; a grass vert can still poke through a flare mouth or shoulder deck. Never lifts.
-    _all8 = []
-    for _m8 in (shoulder, runoff, kerb):
-        for _t8 in _m8["tris"]:
-            _all8.append((_m8["vertices"][_t8[0]], _m8["vertices"][_t8[1]], _m8["vertices"][_t8[2]]))
-    _rc8: dict = _add7(list)
-    for _tt8 in _all8:
-        _xs8 = [_v[0] for _v in _tt8]; _zs8 = [_v[2] for _v in _tt8]
-        for _ci8 in range(int(min(_xs8) // 4.0), int(max(_xs8) // 4.0) + 1):
-            for _cj8 in range(int(min(_zs8) // 4.0), int(max(_zs8) // 4.0) + 1):
-                _rc8[(_ci8, _cj8)].append(_tt8)
+        print(f"  [contact pin] {_fixed7} grass verts pinned to deck underside, {_feathered7} raised onto the fill bench/face")
+    # TWO-SIDED pin under the rest of the pavement (shoulder/runoff/kerb): the grass hugs the
+    # shoulder underside exactly like it hugs the deck — down-only clamping left it 0.7-1.0 m
+    # low (the daylight strip). Window-min for chord safety; road-footprint verts (already
+    # pinned lower, chord-safe vs the deck) are never raised above their road pin.
     _down8 = 0
     for _i8 in range(len(_gv7)):
         _gx8, _gy8, _gz8 = _gv7[_i8]
-        _lo8 = None
-        for _a8, _b8, _c8 in _rc8.get((int(_gx8 // 4.0), int(_gz8 // 4.0)), ()):
-            _d8 = (_b8[2] - _c8[2]) * (_a8[0] - _c8[0]) + (_c8[0] - _b8[0]) * (_a8[2] - _c8[2])
-            if abs(_d8) < 1e-12:
+        if (int(_gx8 // 24.0), int(_gz8 // 24.0)) not in _near7:
+            continue
+        _lo8 = _shoulder_window_min8(_gx8, _gz8, _gy8)
+        if _lo8 is None:
+            continue
+        _tgt8 = _lo8 - GRASS_CLEARANCE_M
+        if _tgt8 > _gy8:
+            # raising: never through the ROAD deck (road window-min governs), never under bridges
+            _wm8 = _deck_window_min7(_gx8, _gz8, _gy8)
+            if _wm8 is not None and _tgt8 > _wm8 - GRASS_CLEARANCE_M:
+                _tgt8 = _wm8 - GRASS_CLEARANCE_M
+            _s8 = _near_station7(_gx8, _gz8)
+            if _s8 is not None and bridge_of(_s8):
                 continue
-            _w08 = ((_b8[2] - _c8[2]) * (_gx8 - _c8[0]) + (_c8[0] - _b8[0]) * (_gz8 - _c8[2])) / _d8
-            _w18 = ((_c8[2] - _a8[2]) * (_gx8 - _c8[0]) + (_a8[0] - _c8[0]) * (_gz8 - _c8[2])) / _d8
-            _w28 = 1.0 - _w08 - _w18
-            if _w08 >= -1e-6 and _w18 >= -1e-6 and _w28 >= -1e-6:
-                _y8 = _w08 * _a8[1] + _w18 * _b8[1] + _w28 * _c8[1]
-                if abs(_y8 - _gy8) <= 20.0 and (_lo8 is None or _y8 < _lo8):
-                    _lo8 = _y8
-        if _lo8 is not None and _gy8 > _lo8 - GRASS_CLEARANCE_M:
-            _gv7[_i8] = (_gx8, _lo8 - GRASS_CLEARANCE_M, _gz8)
+        if abs(_tgt8 - _gy8) > 1e-4 and _tgt8 != _gy8:
+            _gv7[_i8] = (_gx8, _tgt8, _gz8)
             _down8 += 1
     if _down8:
-        print(f"  [contact pin] {_down8} grass verts clamped under shoulder/runoff/kerb")
+        print(f"  [contact pin] {_down8} grass verts pinned to the shoulder/runoff underside")
     # write the pinned nodes back into the grid, THEN snapshot ground.local + mesh the grass
     _nx7w = len(grid_xyz[0])
     for _j7w in range(len(grid_xyz)):
