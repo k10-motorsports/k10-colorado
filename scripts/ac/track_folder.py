@@ -122,6 +122,56 @@ def _map_params(xz, size: int = 900, margin: int = 28):
     return params, geom
 
 
+def _osm_preview(project_dir: Path, w: int = 1200, h: int = 675):
+    """CM preview: the cached OSM street network (grey, class-weighted) with the ROUTE drawn
+    bold on top — 'the osm with the route drawn on it'. Returns a PIL Image or None."""
+    waysp = project_dir / "data" / "osm.ways.json"
+    clp = project_dir / "data" / "centerline.geojson"
+    if not (waysp.exists() and clp.exists()):
+        return None
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return None
+    ways = json.loads(waysp.read_text())
+    gj = json.loads(clp.read_text())
+    feats = gj.get("features", [gj])
+    line = next((f for f in feats if f.get("geometry", {}).get("type") == "LineString"), None)
+    if line is None:
+        return None
+    route = [(c[0], c[1]) for c in line["geometry"]["coordinates"]]
+    lons = [c[0] for c in route]; lats = [c[1] for c in route]
+    lat0 = sum(lats) / len(lats)
+    kx = math.cos(math.radians(lat0))
+    x0, x1 = min(lons), max(lons)
+    z0, z1 = min(lats), max(lats)
+    padx = (x1 - x0) * 0.12 + 1e-9; padz = (z1 - z0) * 0.12 + 1e-9
+    x0 -= padx; x1 += padx; z0 -= padz; z1 += padz
+    sc = min(w / ((x1 - x0) * kx), h / (z1 - z0))
+    ox = (w - (x1 - x0) * kx * sc) / 2; oz = (h - (z1 - z0) * sc) / 2
+
+    def px(lon, lat):
+        return (ox + (lon - x0) * kx * sc, h - (oz + (lat - z0) * sc))
+
+    AA = 2
+    img = Image.new("RGB", (w * AA, h * AA), (242, 239, 233))     # OSM-carto paper
+    dr = ImageDraw.Draw(img)
+    W = {"motorway": 7, "trunk": 7, "primary": 6, "secondary": 5, "tertiary": 4}
+    for pass_i, (col, extra) in enumerate((((201, 196, 187), 2), ((255, 255, 255), 0))):
+        for wv in ways:
+            g = wv.get("geom") or []
+            if len(g) < 2:
+                continue
+            wid = (W.get((wv.get("highway") or "").replace("_link", ""), 3) + extra) * AA
+            pts = [tuple(c * AA for c in px(lo, la)) for lo, la in g]
+            dr.line(pts, fill=col, width=wid, joint="curve")
+    rpts = [tuple(c * AA for c in px(lo, la)) for lo, la in route]
+    dr.line(rpts, fill=(224, 52, 44), width=8 * AA, joint="curve")
+    dr.ellipse([rpts[0][0] - 10 * AA, rpts[0][1] - 10 * AA, rpts[0][0] + 10 * AA, rpts[0][1] + 10 * AA],
+               fill=(224, 52, 44), outline=(255, 255, 255), width=3 * AA)
+    return img.resize((w, h), Image.LANCZOS)
+
+
 def map_ini(params: dict) -> str:
     body = "\n".join(f"{k}={v}" for k, v in params.items())
     return f"[PARAMETERS]\n{body}\n"
@@ -227,7 +277,10 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     # HUD minimap — white track, transparent, AC convention (consistent with map.ini)
     _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False,
                           multi=multi), out / "map.png", params["WIDTH"])
-    # preview — reuse the Phase-4 3D render (a real view of the track) if present
+    # preview — OSM street map with the route drawn on it (Kevin), from the widths stage's
+    # cached ways (data/osm.ways.json) so pack needs no network. Falls back to the 3D render
+    # or the plain outline when no ways cache exists (aerial-traced facilities).
+    preview_img = _osm_preview(project_dir)
     render_svg = project_dir / "data" / "track_render.svg"
     preview_src = render_svg.read_text(encoding="utf-8") if render_svg.exists() else \
         _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True, multi=multi)
@@ -252,7 +305,10 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, layout_pits), indent=2),
                                            encoding="utf-8")
         _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True, multi=multi), uid / "outline.png", params["WIDTH"])
-        _rasterize(preview_src, uid / "preview.png", 600)
+        if preview_img is not None:
+            preview_img.save(uid / "preview.png")
+        else:
+            _rasterize(preview_src, uid / "preview.png", 600)
         aid = out / "ai" / layout
         aid.mkdir(parents=True, exist_ok=True)
         (aid / "README.txt").write_text(

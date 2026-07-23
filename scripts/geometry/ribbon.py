@@ -112,6 +112,7 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
     P = 4 if ground is not None else 2   # 4th point = the BURIED HEM (sheet edge sealed into dirt)
+    sections: dict = {1.0: [], -1.0: []}   # per-station construction metadata (selector output)
     for side in (1.0, -1.0):
         rows: list[int] = []
         arc = 0.0
@@ -141,16 +142,22 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
                 # hill. FILL (ground below): the gentle ratio:1 embankment descending to natural.
                 _cutting = gy0 > verge_y
                 _drop = abs(verge_y - gy0)
-                # CUTS are steep excavated faces. FILLS: gentle ratio:1 only while SMALL (urban
-                # lawns); a mountain drop > 1.5 m becomes a steep 0.75:1 fill face (the real
-                # Lariat's stone retaining walls) — a long shallow 2:1 sheet spanning 10-40 m of
-                # falling mountainside is an open lean-to of pavement you look UP INTO from the
-                # switchback below ("entire airgaps beneath it and the ground").
-                _slope_r = 0.75 if (_cutting or _drop > 1.5) else ratio
-                extra = min(max_w, max(verge_w, _drop * _slope_r))
+                # CONSTRUCTION SELECTOR (docs/ROAD-CONSTRUCTION.md four-condition rule): pick the
+                # cheapest condition that closes the gap. CUT: steep 0.75:1 excavated face into the
+                # hill. FILL: gentle ratio:1 while small (urban lawns); >1.5 m steepens to 0.75:1.
+                # WALL: fill drop > 4 m exceeds what earth can carry — a dry-stone RETAINING WALL
+                # at 1:6 batter (near-vertical, the 1913 Lariat pattern; build_mesh skins it in
+                # RETWALL stone). Bridges are already handled upstream by the bridge detector.
+                _wall = (not _cutting) and _drop > 4.0
+                _slope_r = (1.0 / 6.0) if _wall else (0.75 if (_cutting or _drop > 1.5) else ratio)
+                extra = min(max_w, max(verge_w if not _wall else 0.6, _drop * _slope_r))
                 o = _cap(half + verge_w + extra)
                 verts.append((x + nx * o, ground(x + nx * o, z + nz * o), z + nz * o))   # ground meet (draped)
                 uvs.append((1.0, arc / tile_m))
+                sections[1.0 if side > 0 else -1.0].append({
+                    "i": i, "cutting": _cutting, "drop": round(_drop, 2), "wall": _wall,
+                    "verge": (x + nx * _cap(half + verge_w), verge_y, z + nz * _cap(half + verge_w)),
+                    "meet": verts[-1], "n": (nx, nz), "arc": arc})
                 # BURIED HEM: one more metre out and 0.8 m INTO the dirt — the sheet's edge ends
                 # inside the terrain, not balanced on an interpolated line, so no grid-resolution
                 # or interp mismatch can ever open daylight under the lip.
@@ -168,7 +175,7 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             for u in range(P - 1):
                 tris.append((p + u, p + u + 1, q + u + 1))
                 tris.append((p + u, q + u + 1, q + u))
-    return {"vertices": verts, "uvs": uvs, "tris": tris}
+    return {"vertices": verts, "uvs": uvs, "tris": tris, "sections": sections}
 
 
 def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,

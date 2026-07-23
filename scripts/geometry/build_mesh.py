@@ -252,6 +252,7 @@ def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]
     if not spans:
         return None
     print(f"  bridge spans: {len(spans)} ({[f'{a:.0f}-{b:.0f}m' for a, b in spans]}) — deck+piers, no fill")
+    _bridge_detector.last_spans = [(float(a), float(b)) for a, b in spans]   # for persistence
 
     def bridge_of(station_m: float) -> bool:
         return any(a <= station_m <= b for a, b in spans)
@@ -545,6 +546,11 @@ def build(project_dir: str | Path) -> dict:
                                                   raw_pts[i][2] - raw_pts[i - 1][2]))
             raw_ground = (_gst, [z - elev0 for z in _ej["z_raw_m"]])
     bridge_of = _bridge_detector(centerline, natural_grid, raw_ground=raw_ground)
+    # persist AUTO-detected spans for the kn5 gate: the builder exempts them from fill/pins,
+    # so the gate must exempt the same stations (declared-only exemption read auto bridge
+    # valleys as 7 m of 'road hover' and wrecked the deck-vs-mountain metric).
+    _auto_spans = getattr(_bridge_detector, "last_spans", [])
+    (data / "bridge.spans.auto.json").write_text(json.dumps(_auto_spans), encoding="utf-8")
     # band=2.5 == the shoulder's verge_w: sheet and terrain must BREAK AT THE SAME LINE with the
     # same slopes, or a stagger wedge of air opens under every cut face (the tenting gate read a
     # constant ~2 m of daylight under the sheet with the old band=4.0 vs verge 2.5).
@@ -920,11 +926,19 @@ def build(project_dir: str | Path) -> dict:
                 _rc8[(_ci8, _cj8)].append(_tt8)
 
     def _shoulder_window_min8(px, pz, y_ref):
-        """Lowest shoulder/runoff/kerb surface within half a grid cell (9-point), layer-guarded."""
+        """Lowest shoulder/runoff/kerb SURFACE within half a grid cell (9-point), layer-guarded.
+        Near-vertical tris (battered wall faces, cut faces) are excluded — they are walls, and
+        their barycentric heights dive metres down the face, poisoning the window minimum."""
         lo = None
         for ox, oz in ((0.0, 0.0), (_hs7, 0.0), (-_hs7, 0.0), (0.0, _hs7), (0.0, -_hs7),
                        (_hs7, _hs7), (-_hs7, -_hs7), (_hs7, -_hs7), (-_hs7, _hs7)):
             for a, b, c in _rc8.get((int((px + ox) // 4.0), int((pz + oz) // 4.0)), ()):
+                ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+                vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+                nx8 = uy * vz - uz * vy; ny8 = uz * vx - ux * vz; nz8 = ux * vy - uy * vx
+                nl8 = math.sqrt(nx8 * nx8 + ny8 * ny8 + nz8 * nz8) or 1e-12
+                if abs(ny8) / nl8 < 0.5:
+                    continue
                 d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
                 if abs(d) < 1e-12:
                     continue
@@ -965,26 +979,9 @@ def build(project_dir: str | Path) -> dict:
                 if abs(_y7 - _gy7) <= 20.0 and (_best7 is None or _y7 < _best7):
                     _best7 = _y7
         if _best7 is None:
-            if (int(_gx7 // 24.0), int(_gz7 // 24.0)) not in _near7:
-                continue
-            # outside the footprint: EMBANKMENT FILL FACE, not a fade (Kevin: the ground must
-            # match the road, then fall away as real construction does — a 6 m fade back to the
-            # DEM read as 'a ribbon above the mountain'). 1 m flush bench at deck height, then a
-            # 2:1 engineered face that continues until it intersects natural ground. Uphill side
-            # (ground above the face) is untouched — that's the cut, handled by the clamps.
-            _d7f, _ey7 = _closest_on_road7(_gx7, _gz7)
-            if _ey7 is not None and abs(_ey7 - _gy7) <= 20.0:
-                # a cell can span the whole road: both verts outside the footprint would bench at
-                # deck-EDGE height, chord crossing ABOVE the cambered low side. Cap by window-min.
-                _wm7 = _deck_window_min7(_gx7, _gz7, _gy7)
-                if _wm7 is not None and _wm7 < _ey7:
-                    _ey7 = _wm7
-                _tgt7 = (_ey7 - GRASS_CLEARANCE_M) - _FILL_SLOPE7 * max(0.0, _d7f - _BENCH7)
-                if _tgt7 > _gy7:
-                    _s7 = _near_station7(_gx7, _gz7)
-                    if not (_s7 is not None and bridge_of(_s7)):
-                        _gv7[_i7] = (_gx7, _tgt7, _gz7)
-                        _feathered7 += 1
+            # outside the pavement footprint the WELDED EDGE RINGS own the transition (#17):
+            # the grass boundary shares the shoulder's ground-meet vertices, so the grid here
+            # stays at natural ground and rides ~2 cm under the ring annulus.
             continue
         # SAG-PROOF: pin to the MINIMUM deck height within half a grid cell (all 8 directions),
         # not the deck at the exact point — otherwise 6 m grass chords bridge ABOVE the deck
@@ -1020,14 +1017,19 @@ def build(project_dir: str | Path) -> dict:
             continue
         _tgt8 = _lo8 - GRASS_CLEARANCE_M
         if _tgt8 > _gy8:
-            # raising: never through the ROAD deck (road window-min governs), never under bridges
+            # two-sided under pavement: raise capped by the ROAD window-min (chord safety vs the
+            # deck) and never under bridges. Down-only here let deck-edge gaps grow to ~1.2 m
+            # where the shoulder overlaps the lip (the weld seals the VISIBLE seam; this keeps
+            # the under-slab contact number tight too).
             _wm8 = _deck_window_min7(_gx8, _gz8, _gy8)
             if _wm8 is not None and _tgt8 > _wm8 - GRASS_CLEARANCE_M:
                 _tgt8 = _wm8 - GRASS_CLEARANCE_M
             _s8 = _near_station7(_gx8, _gz8)
             if _s8 is not None and bridge_of(_s8):
                 continue
-        if abs(_tgt8 - _gy8) > 1e-4 and _tgt8 != _gy8:
+            if _tgt8 <= _gy8:
+                continue
+        if abs(_tgt8 - _gy8) > 1e-4:
             _gv7[_i8] = (_gx8, _tgt8, _gz8)
             _down8 += 1
     if _down8:
@@ -1041,6 +1043,169 @@ def build(project_dir: str | Path) -> dict:
     # grid_xyz exactly (post ALL anti-poke/contact passes) — the surface the grass mesh triangulates.
     write_ground_local(data / "ground.local.json", grid_xyz)
     grass = ribbon.grass_terrain(grid_xyz)
+
+    # ================= #17 PRO CONSTRUCTION: welded edge rings + stone works =================
+    # THE WELD: terrain's boundary ring re-uses the shoulder's ground-meet vertices EXACTLY, so
+    # daylight at the pavement/terrain seam is geometrically impossible (the hillclimb standard:
+    # 81% of grass boundary verts coincide <1 mm with the adjoining strip). Rings march outward
+    # at a road-anchored density gradient (1.5/4/10/22 m) at natural ground +2 cm (the grid rides
+    # just beneath — no z-fight, no hole). Stone works from the construction selector: RETWALL
+    # skins on wall-warranted faces (drop>4 m, 1:6 batter), ROCKCUT skins on rock cuts (drop>2),
+    # 1913 stone parapets (0.5x0.4 m) along fill edges with drop>2 m. Bridges keep open valleys.
+    ring_mesh = {"vertices": [], "uvs": [], "tris": []}
+    para_mesh = {"vertices": [], "uvs": [], "tris": []}
+    wallskin = {"vertices": [], "uvs": [], "tris": []}
+    rockskin = {"vertices": [], "uvs": [], "tris": []}
+    _RINGS17 = (1.5, 4.0, 10.0, 22.0)
+
+    def _pav_at17(px, pz, y_ref):
+        """Lowest flat-ish pavement surface AT this exact XZ (road + shoulder/runoff/kerb),
+        steep faces excluded, 20 m layer window — the audit's own geometry model."""
+        lo = None
+        cell = (int(px // 4.0), int(pz // 4.0))
+        for a, b, c in ([(_rv7[t[0]], _rv7[t[1]], _rv7[t[2]]) for t in _rc7.get(cell, ())]
+                        + list(_rc8.get(cell, ()))):
+            ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+            vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+            nx9 = uy * vz - uz * vy; ny9 = uz * vx - ux * vz; nz9 = ux * vy - uy * vx
+            nl9 = math.sqrt(nx9 * nx9 + ny9 * ny9 + nz9 * nz9) or 1e-12
+            if abs(ny9) / nl9 < 0.5:
+                continue
+            d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+            if abs(d) < 1e-12:
+                continue
+            w0 = ((b[2] - c[2]) * (px - c[0]) + (c[0] - b[0]) * (pz - c[2])) / d
+            w1 = ((c[2] - a[2]) * (px - c[0]) + (a[0] - c[0]) * (pz - c[2])) / d
+            w2 = 1.0 - w0 - w1
+            if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                y = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                if abs(y - y_ref) <= 20.0 and (lo is None or y < lo):
+                    lo = y
+        return lo
+    _secs_all = shoulder.get("sections", {1.0: [], -1.0: []})
+    for _sd17 in (1.0, -1.0):
+        _secs = _secs_all.get(_sd17, [])
+        _m17 = len(_secs)
+        if not _m17:
+            continue
+        # ring columns (None = bridge span: valley stays open, strip breaks)
+        _cols = []
+        for _sc in _secs:
+            if bridge_of(_sc["arc"]):
+                _cols.append(None)
+                continue
+            _mx, _my, _mz = _sc["meet"]
+            _nx17, _nz17 = _sc["n"]
+            # ring0 IS the weld — untouched unless a DISTINCT lower pavement sheet (another leg's
+            # shoulder at a switchback throat, >0.35 m below) passes beneath: then fold under it.
+            _m0 = _sc["meet"]
+            # at-point: catches both a distinct lower sheet (switchback throat) AND the own
+            # face's neighbor tris sweeping under the meet at concave bends. No window — the
+            # window smeared crossfall and false-folded banked sections.
+            _pv0 = _pav_at17(_mx, _mz, _my)
+            if _pv0 is not None and _pv0 < _my - 0.10:
+                _m0 = (_mx, _pv0 - GRASS_CLEARANCE_M - 0.02, _mz)
+            _col = [_m0]
+            _kcut = len(_RINGS17) + 1     # how many ring rows of this column are usable
+            _py17 = _m0[1]
+            for _ki17, _dk in enumerate(_RINGS17):
+                _px, _pz = _mx + _nx17 * _dk, _mz + _nz17 * _dk
+                _gy17 = _grid_trisurf(grid_xyz, _px, _pz) + 0.02
+                if abs(_gy17 - _py17) > 20.0:
+                    # cliff edge / another leg's valley: TERMINATE the annulus here — a flat
+                    # extension hung 30 m grass shelves over the real terrain (74 double-sheets)
+                    _kcut = _ki17 + 1
+                    break
+                # hairpins: 'outward' from one leg sails toward the opposing leg. A small fold
+                # (same-height crossing) tucks under its pavement; a DEEP fold (>3 m — a stacked
+                # leg's corridor far below) must TERMINATE the strip instead: that space belongs
+                # to the inter-leg cut face, and folding created 10-20 m grass curtains (the
+                # double-sheet gate caught 76 of them).
+                _pv17 = _deck_window_min7(_px, _pz, _gy17)
+                _ps17 = _shoulder_window_min8(_px, _pz, _gy17)
+                if _ps17 is not None and (_pv17 is None or _ps17 < _pv17):
+                    _pv17 = _ps17
+                _pa17 = _pav_at17(_px, _pz, _gy17)
+                if _pa17 is not None and (_pv17 is None or _pa17 < _pv17):
+                    _pv17 = _pa17
+                if _pv17 is not None and _gy17 > _pv17 - GRASS_CLEARANCE_M - 0.02:
+                    if _gy17 - _pv17 > 3.0:
+                        _kcut = _ki17 + 1             # usable rows: ring0.._ki17 (exclusive of this)
+                        break
+                    _gy17 = _pv17 - GRASS_CLEARANCE_M - 0.02
+                _col.append((_px, _gy17, _pz))
+                _py17 = _gy17
+            _cols.append((_col, _kcut))
+        _pairs = [(_a, _a + 1) for _a in range(_m17 - 1)] + ([(_m17 - 1, 0)] if _m17 > 2 else [])
+        for _a17, _b17 in _pairs:
+            _ea, _eb = _cols[_a17], _cols[_b17]
+            if _ea is None or _eb is None:
+                continue
+            _ca, _cb = _ea[0], _eb[0]
+            _K17 = min(len(_ca), len(_cb), _ea[1], _eb[1])
+            if _K17 < 2:
+                continue
+            _bs17 = len(ring_mesh["vertices"])
+            ring_mesh["vertices"].extend(_ca[:_K17] + _cb[:_K17])
+            ring_mesh["uvs"].extend([(_v[0] / 6.0, _v[2] / 6.0) for _v in (_ca[:_K17] + _cb[:_K17])])
+            for _k17 in range(_K17 - 1):
+                _i0, _i1 = _bs17 + _k17, _bs17 + _k17 + 1
+                _j0, _j1 = _bs17 + _K17 + _k17, _bs17 + _K17 + _k17 + 1
+                ring_mesh["tris"].append((_i0, _j0, _j1))
+                ring_mesh["tris"].append((_i0, _j1, _i1))
+        # ---- stone works along this side ----
+        def _runs17(flag):
+            out, run = [], []
+            for _q, _sc in enumerate(_secs):
+                if flag(_sc) and not bridge_of(_sc["arc"]):
+                    run.append(_q)
+                else:
+                    if len(run) >= 5:
+                        out.append(run)
+                    run = []
+            if len(run) >= 5:
+                out.append(run)
+            return out
+        # stone parapets: fill edges dropping > 2 m (incl. wall tops) — 0.5 h x 0.4 w at the verge
+        for _run in _runs17(lambda sc: (not sc["cutting"]) and sc["drop"] > 2.0):
+            _bs17 = len(para_mesh["vertices"])
+            for _q in _run:
+                _sc = _secs[_q]
+                _vx, _vy, _vz = _sc["verge"]
+                _nx17, _nz17 = _sc["n"]
+                for _off17, _hy17 in ((-0.2, -0.15), (-0.2, 0.5), (0.2, 0.5), (0.2, -0.15)):
+                    para_mesh["vertices"].append((_vx + _nx17 * _off17, _vy + _hy17, _vz + _nz17 * _off17))
+                    para_mesh["uvs"].append((_sc["arc"] / 1.5, (_hy17 + 0.15) / 0.65))
+            for _q in range(len(_run) - 1):
+                _r0, _r1 = _bs17 + _q * 4, _bs17 + (_q + 1) * 4
+                for _f0, _f1 in ((0, 1), (1, 2), (2, 3)):   # inner face, cap, outer face
+                    para_mesh["tris"].append((_r0 + _f0, _r0 + _f1, _r1 + _f1))
+                    para_mesh["tris"].append((_r0 + _f0, _r1 + _f1, _r1 + _f0))
+            # end caps
+            for _e0 in (_bs17, _bs17 + (len(_run) - 1) * 4):
+                para_mesh["tris"].append((_e0, _e0 + 1, _e0 + 2))
+                para_mesh["tris"].append((_e0, _e0 + 2, _e0 + 3))
+        # face skins: quad strip verge->meet pushed 5 cm out, stone on walls / granite on rock cuts
+        for _skin, _flag in ((wallskin, lambda sc: sc.get("wall")),
+                             (rockskin, lambda sc: sc["cutting"] and sc["drop"] > 2.0)):
+            for _run in _runs17(_flag):
+                _bs17 = len(_skin["vertices"])
+                for _q in _run:
+                    _sc = _secs[_q]
+                    _nx17, _nz17 = _sc["n"]
+                    _vx, _vy, _vz = _sc["verge"]
+                    _mx, _my, _mz = _sc["meet"]
+                    _skin["vertices"].append((_vx + _nx17 * 0.05, _vy, _vz + _nz17 * 0.05))
+                    _skin["uvs"].append((_sc["arc"] / 2.5, 0.0))
+                    _skin["vertices"].append((_mx + _nx17 * 0.05, _my, _mz + _nz17 * 0.05))
+                    _skin["uvs"].append((_sc["arc"] / 2.5, _sc["drop"] / 2.5))
+                for _q in range(len(_run) - 1):
+                    _r0, _r1 = _bs17 + _q * 2, _bs17 + (_q + 1) * 2
+                    _skin["tris"].append((_r0, _r0 + 1, _r1 + 1))
+                    _skin["tris"].append((_r0, _r1 + 1, _r1))
+    print(f"  [#17] welded rings {len(ring_mesh['vertices'])}v; parapets {len(para_mesh['vertices'])}v; "
+          f"wall skins {len(wallskin['vertices'])}v; rock skins {len(rockskin['vertices'])}v")
+    # ==========================================================================================
 
     barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
     barrier_group = ("BARRIER_warning", "kerb")
@@ -1277,6 +1442,7 @@ def build(project_dir: str | Path) -> dict:
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
     groups = [*split_mesh_under_cap("1GRASS", "grass", grass),
+              *split_mesh_under_cap("1GRASS_ring", "grass", orient_up(ring_mesh)),
               *split_mesh_under_cap(edge_group, edge_mat, shoulder),
                *split_mesh_under_cap("SHOULDERUND", edge_mat, shoulder_under),
               ("1RUNOFF_corners", "road", runoff),
@@ -1284,6 +1450,12 @@ def build(project_dir: str | Path) -> dict:
               *split_mesh_under_cap("1KERB_corners", "kerb", kerb),
               ("MARKINGS", "kerb", marks),
               ("MARKINGS_crosswalk", "kerb", xwalk)]
+    if para_mesh["tris"]:
+        groups.extend(split_mesh_under_cap("1WALL_PARA_stone", "kerb", para_mesh))
+    if wallskin["tris"]:
+        groups.extend(split_mesh_under_cap("RETWALL_face", "kerb", wallskin))
+    if rockskin["tris"]:
+        groups.extend(split_mesh_under_cap("ROCKCUT_face", "kerb", rockskin))
     if roadtext["tris"]:
         groups.append(("ROADTEXT", "kerb", roadtext))
     if barrier["tris"]:

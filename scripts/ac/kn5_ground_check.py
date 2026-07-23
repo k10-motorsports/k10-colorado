@@ -224,7 +224,11 @@ def check(project_dir: str | Path) -> dict:
     fcp = project_dir / "data" / "finished_centerline.json"
     try:
         from scripts.capture import evidence
-        spans = evidence.bridge_spans(project_dir)
+        spans = list(evidence.bridge_spans(project_dir) or [])
+        _autop = project_dir / "data" / "bridge.spans.auto.json"
+        if _autop.exists():
+            # builder-detected spans (stations a..b) — same exemption as declared bridges
+            spans += [((a + b) / 2.0, (b - a)) for a, b in json.loads(_autop.read_text())]
         if spans and fcp.exists():
             fc = json.loads(fcp.read_text())
             pts_fc = fc["points_xyz_m"] if isinstance(fc, dict) else fc

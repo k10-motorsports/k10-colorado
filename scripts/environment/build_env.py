@@ -861,7 +861,11 @@ def build(project_dir: str | Path) -> dict:
                     nt.append(j)
                 dest["tris"].append(tuple(nt))
             return lo, hi
-        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 8.8)
+        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 6.9)
+        # the WHOLE head (luminaire base ~7.4 m after the 9 m scale) goes to LAMPHEAD, and the
+        # head is DOUBLE-SIDED: the model's shell normals face inward on part of the housing, so
+        # single-sided culling erased the top from most angles ("pole tops are still invisible").
+        _lamp_head_mod["tris"] = _lamp_head_mod["tris"] + [(c, b, a) for a, b, c in _lamp_head_mod["tris"]]
         # THE MISSING MAST (Kevin, three times: "top half invisible", "half a light pole",
         # "floating orb 12 feet above"): the OBJ literally contains a pedestal (0-2 m), a collar
         # at 5 m and the head (9-11 m) — the mast was never exported as faces. Bridge it with a

@@ -92,7 +92,13 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
                 wz = bz + tz * mz + nz * mx
                 out["vertices"].append((wx, y - base_sink + my, wz))
             out["uvs"].extend(module["uvs"])
-            out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
+            # side -1 mirrors the (tangent, normal) basis (handedness flip) — the stamped tris
+            # wind backwards and the run renders INSIDE-OUT (see-through from the road). Reverse
+            # the winding on mirrored sides so faces point outward everywhere.
+            if side < 0:
+                out["tris"].extend((a + base, c + base, b + base) for a, b, c in module["tris"])
+            else:
+                out["tris"].extend((a + base, b + base, c + base) for a, b, c in module["tris"])
     return out
 
 
