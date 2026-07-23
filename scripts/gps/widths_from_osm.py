@@ -74,7 +74,7 @@ def fetch_ways(bbox: tuple[float, float, float, float]) -> list[dict]:
         if el.get("type") != "way" or "geometry" not in el:
             continue
         t = el.get("tags", {})
-        ways.append({"id": el["id"], "name": t.get("name"), "highway": t.get("highway"),
+        ways.append({"id": el["id"], "name": t.get("name"), "ref": t.get("ref"), "highway": t.get("highway"),
                      "lanes": t.get("lanes"), "width": t.get("width"), "nodes": el.get("nodes", []),
                      "geom": [(g["lon"], g["lat"]) for g in el["geometry"]]})
     return ways
@@ -94,11 +94,13 @@ def pavement_width(way: dict | None, profile: str = "urban") -> float:
     if hw.endswith("_link"):                   # interchange ramp: one lane + shoulder, either profile
         return round(lane_w + 2.0, 1)
     cmin, extra = table.get(hw, (2, 3.0))
-    lanes = cmin
+    # An explicit lanes tag is ground truth — a tagged 2-lane secondary is 2 lanes, not the class
+    # floor (flooring turned Sand Creek's tagged 1- and 2-lane streets into 15.5 m highways).
+    # The class floor only fills in when OSM doesn't say.
     try:
-        lanes = max(int(way["lanes"]), cmin)   # OSM often UNDER-tags US arterials → floor at the class typical
+        lanes = max(int(way["lanes"]), 1)
     except (TypeError, ValueError):
-        pass
+        lanes = cmin
     return round(lanes * lane_w + extra, 1)
 
 
@@ -225,8 +227,35 @@ def build(project_dir: str | Path) -> dict:
     lons = [c[0] for c in cl]; lats = [c[1] for c in cl]
     pad = 0.0015
     bbox = (min(lats) - pad, min(lons) - pad, max(lats) + pad, max(lons) + pad)
-    profile = json.loads((project / "track.config.json").read_text()).get("route", {}).get("width_profile", "urban")
+    route = json.loads((project / "track.config.json").read_text()).get("route", {}) or {}
+    profile = route.get("width_profile", "urban")
     ways = fetch_ways(bbox)
+    # IDENTITY LOCK: freeway-class ways may donate widths ONLY when the route declares them
+    # (by name, "ref:NAME" or "id:N,N"). A street circuit beside I-270/US-85 was inheriting
+    # freeway widths from nearest-way matching — "sand creek is fucking highways".
+    _decl_names, _decl_refs, _decl_ids = set(), set(), set()
+    for _r in route.get("roads") or []:
+        if _r.startswith("ref:"):
+            _decl_refs.add(_r[4:].strip().lower())
+        elif _r.startswith("id:"):
+            _decl_ids.update(int(t) for t in _r[3:].split(",") if t.strip())
+        else:
+            _decl_names.add(_r.strip().lower())
+    _FREEWAY = {"motorway", "trunk", "motorway_link", "trunk_link"}
+    _banned = 0
+    _kept = []
+    for _w in ways:
+        if _w.get("highway") in _FREEWAY:
+            _nm = (_w.get("name") or "").strip().lower()
+            _rf = (_w.get("ref") or "").strip().lower()
+            if _w["id"] not in _decl_ids and _nm not in _decl_names \
+                    and not (_rf and any(_rf == d or d in _rf.split(";") for d in _decl_refs)):
+                _banned += 1
+                continue
+        _kept.append(_w)
+    if _banned:
+        print(f"  [widths_from_osm] identity lock: {_banned} undeclared freeway-class ways excluded from matching")
+    ways = _kept
     idx = _match_per_vertex(cl, ways)
     widths_cl = [pavement_width(ways[wi] if wi >= 0 else None, profile) for wi in idx]
     widths_cl = _smooth(widths_cl)

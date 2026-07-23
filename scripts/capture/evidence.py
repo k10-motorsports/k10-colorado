@@ -253,17 +253,28 @@ def level_bridge_decks(points_xyz: list[Vertex], bridges: list[tuple[float, floa
     S = [0.0]
     for i in range(1, n):
         S.append(S[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+    BANK_SEEK_M = 80.0   # how far outside the span to look for the true bank crest
     for center, length in bridges:
         half = length / 2.0
-        a, b = center - half - ramp_m, center + half + ramp_m           # deck endpoints (approach grade)
-        ya = pts[min(range(n), key=lambda i: abs(S[i] - a))][1]
-        yb = pts[min(range(n), key=lambda i: abs(S[i] - b))][1]
+        # Anchor the deck on the BANK CRESTS, not at a fixed offset: the bare-earth valley is often
+        # wider than the declared span (Sand Creek's at 56th is ~225 m wide), so a fixed 30 m anchor
+        # lands partway down the dive and the "level deck" gets built 2-3 m into the hole, with a
+        # dive in and a pop-out ramp at each end (the '56th dip + rolling hill').
+        la, lb = center - half, center + half
+        ia = [i for i in range(n) if la - BANK_SEEK_M <= S[i] <= la]
+        ib = [i for i in range(n) if lb <= S[i] <= lb + BANK_SEEK_M]
+        if not ia or not ib:
+            ia = [min(range(n), key=lambda i: abs(S[i] - (la - ramp_m)))]
+            ib = [min(range(n), key=lambda i: abs(S[i] - (lb + ramp_m)))]
+        i_a = max(ia, key=lambda i: pts[i][1])
+        i_b = max(ib, key=lambda i: pts[i][1])
+        a, b, ya, yb = S[i_a], S[i_b], pts[i_a][1], pts[i_b][1]
         for i in range(n):
             if a <= S[i] <= b:
-                deck = ya + (yb - ya) * (S[i] - a) / max(1e-9, b - a)    # level/gentle deck across the span
-                d = abs(S[i] - center)
-                w = 1.0 if d <= half else 0.5 * (1.0 + math.cos(math.pi * (d - half) / ramp_m))
-                pts[i][1] = pts[i][1] * (1.0 - w) + deck * w
+                # straight crest-to-crest deck: endpoints sit ON raw ground, so no blend — a blend
+                # let the raw valley bleed a 0.9 m dip back in between span end and crest. The
+                # centerline smoothing pass rounds the small grade breaks at the crests.
+                pts[i][1] = ya + (yb - ya) * (S[i] - a) / max(1e-9, b - a)
     return [tuple(p) for p in pts]
 
 

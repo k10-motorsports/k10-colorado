@@ -464,6 +464,64 @@ def build(project_dir: str | Path) -> dict:
     grid, meta = ribbon.upsample_grid(grid, meta, up)
     print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
+    # CORRIDOR SPLICE: override grid heights within the corridor with the near-native 3DEP field
+    # (data/corridor.elev.json — the rc6 Lariat lesson: the 40 m area grid cannot contain the 8 m
+    # bench; the corridor field can). Bilinear in (station, lateral) space; beyond the corridor the
+    # coarse grid stands. Blend the last 10 m so the seam doesn't step.
+    _cor_p = data / "corridor.elev.json"
+    if _cor_p.exists():
+        _cor = json.loads(_cor_p.read_text())
+        _cst = _cor["stations_lonlat"]
+        _coffs = _cor["offsets"]
+        _cz = _cor["z"]
+        _half_l = float(_cor["half_l"])
+        _m_lon, _m_lat = _meters_per_degree(origin[1])
+        _sxc = -1.0 if mirror_x else 1.0
+        # corridor station points in the LOCAL (mirrored) frame
+        _cpts = [(_sxc * (lo - origin[0]) * _m_lon, (la - origin[1]) * _m_lat) for lo, la in _cst]
+        from collections import defaultdict as _cdd
+        _ch = _cdd(list)
+        for _ci, (_cx, _cz2) in enumerate(_cpts):
+            _ch[(int(_cx // 30), int(_cz2 // 30))].append(_ci)
+        _n_over = 0
+        for _row in grid_xyz:
+            for _k in range(len(_row)):
+                _gx, _gy, _gz = _row[_k]
+                _best = None
+                for _di in (-1, 0, 1):
+                    for _dj in (-1, 0, 1):
+                        for _ci in _ch.get((int(_gx // 30) + _di, int(_gz // 30) + _dj), ()):
+                            _d2 = (_cpts[_ci][0] - _gx) ** 2 + (_cpts[_ci][1] - _gz) ** 2
+                            if _best is None or _d2 < _best[0]:
+                                _best = (_d2, _ci)
+                if _best is None:
+                    continue
+                _ci = _best[1]
+                _j2 = min(_ci + 1, len(_cpts) - 1)
+                _k2 = max(_ci - 1, 0)
+                _tx = _cpts[_j2][0] - _cpts[_k2][0]
+                _tz = _cpts[_j2][1] - _cpts[_k2][1]
+                _L = (_tx * _tx + _tz * _tz) ** 0.5 or 1.0
+                _tx, _tz = _tx / _L, _tz / _L
+                _dxn = _gx - _cpts[_ci][0]
+                _dzn = _gz - _cpts[_ci][1]
+                _lat = -( -_tz * _dxn + _tx * _dzn) * _sxc   # signed lateral (mirror-aware)
+                _lon_s = _dxn * _tx + _dzn * _tz             # along-track residual
+                if abs(_lat) > _half_l or abs(_lon_s) > 9.0:
+                    continue
+                # lateral bilinear in the corridor row (station rows are ~6 m apart; use nearest)
+                _fo = (_lat + _half_l) / float(_cor["step_l"])
+                _io = max(0, min(len(_coffs) - 2, int(_fo)))
+                _to = max(0.0, min(1.0, _fo - _io))
+                _z1 = _cz[_ci][_io]
+                _z2v = _cz[_ci][_io + 1]
+                if _z1 is None or _z2v is None:
+                    continue
+                _zc = (_z1 * (1 - _to) + _z2v * _to) - elev0
+                _edge = min(1.0, (_half_l - abs(_lat)) / 10.0)   # blend the outer 10 m
+                _row[_k] = (_gx, _gy * (1 - _edge) + _zc * _edge, _gz)
+                _n_over += 1
+        print(f"  [corridor] spliced {_n_over} grid nodes with near-native terrain")
     # Sink the terrain into a wide smooth BOWL around any dip (the corkscrew) so it reads as a valley,
     # not a road in a walled trench with the surrounding grass towering overhead.
     if profile_active:
@@ -569,12 +627,47 @@ def build(project_dir: str | Path) -> dict:
     # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small
     # +0.1–0.5 m pokes on banked ovals). Clamp the grid just below the draped strips (tiny 5 cm clearance,
     # short reach) so no grass triangle pokes up through them, without re-opening a visible gap.
+    # FORCE CONTACT (Kevin: "THEY DON'T NEED TO BE THE SAME, THEY NEED TO TOUCH"): the grass
+    # sheet is BENT to pass through the shoulder's ground-meet line. No samplers, no windows, no
+    # tolerances — the strip's own meet vertices become the terrain's heights near the seam, so
+    # the two meshes touch by construction, exactly like the pros' welded edge rings. Data
+    # fidelity (corridor fetch) improves WHERE the seam sits; this guarantees THAT it seals.
+    _P5 = 4 if True else 3     # road_shoulder emits lip/verge/meet/hem per station (P=4 with ground)
+    _sv6 = shoulder["vertices"]
+    _pull = []                  # (x, z, target_y) = the meet line
+    for _i6 in range(2, len(_sv6), _P5):
+        _pull.append(_sv6[_i6])           # meet point of each station/side
+    from collections import defaultdict as _fdd
+    _ph6 = _fdd(list)
+    for _mx6, _my6, _mz6 in _pull:
+        _ph6[(int(_mx6 // 8), int(_mz6 // 8))].append((_mx6, _my6, _mz6))
+    _bent = 0
+    for _row6 in grid_xyz:
+        for _k6 in range(len(_row6)):
+            _gx6, _gy6, _gz6 = _row6[_k6]
+            _best6 = None
+            for _di6 in (-1, 0, 1):
+                for _dj6 in (-1, 0, 1):
+                    for _mx6, _my6, _mz6 in _ph6.get((int(_gx6 // 8) + _di6, int(_gz6 // 8) + _dj6), ()):
+                        _d6 = (_gx6 - _mx6) ** 2 + (_gz6 - _mz6) ** 2
+                        if _best6 is None or _d6 < _best6[0]:
+                            _best6 = (_d6, _my6)
+            if _best6 is None:
+                continue
+            _d6 = _best6[0] ** 0.5
+            if _d6 > 8.0 or abs(_best6[1] - _gy6) > 20.0:     # beyond seam reach / other leg
+                continue
+            _w6 = 1.0 - _d6 / 8.0
+            _row6[_k6] = (_gx6, _gy6 * (1.0 - _w6) + _best6[1] * _w6, _gz6)
+            _bent += 1
+    print(f"  [contact] bent {_bent} grid nodes through the shoulder meet line (they TOUCH)")
+    # the bend seals seams but must NEVER raise ground through pavement — re-run the ROAD clamp
+    # after it (audit B caught exactly one bent node poking +2.74 through a hairpin deck).
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"],
+                                    clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
+                                    foot_m=8.0, recover=0.35)
     ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0,
                                     grid_spacing=float(meta["spacing_m"]))
-    # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G. Reflects
-    # grid_xyz exactly (post both anti-poke passes) — the surface the grass mesh triangulates.
-    write_ground_local(data / "ground.local.json", grid_xyz)
-    grass = ribbon.grass_terrain(grid_xyz)
     mk_cfg = cfg_raw.get("road_markings", {}) or {}
     if mk_cfg.get("style") == "lane":
         # Lake Murray-style painted lines: solid double-yellow centre (two-way), solid white edge
@@ -729,6 +822,182 @@ def build(project_dir: str | Path) -> dict:
                     _sunk += 1
     if _sunk:
         print(f"  shoulder: sank {_sunk} verts under the deck (watertight — no drape holes)")
+
+    # CONTACT PIN on the GRID — runs AFTER the shoulder sink pass (the LAST pavement mutation;
+    # clamping before it left a +0.14 poke where the hem sank under already-clamped grass), and
+    # BEFORE ground.local + grass meshing so props, audit check G and the rendered grass all see
+    # the SAME final surface. Anything under the pavement footprint is pinned to deck - clearance
+    # both ways; the edge feathers out as a graded fill face; bridges keep their valley.
+    _rv7 = road["vertices"]
+    from collections import defaultdict as _add7
+    _rc7: dict = _add7(list)
+    for _t7 in road["tris"]:
+        _xs7 = [_rv7[_v][0] for _v in _t7]; _zs7 = [_rv7[_v][2] for _v in _t7]
+        for _ci7 in range(int(min(_xs7) // 4.0), int(max(_xs7) // 4.0) + 1):
+            for _cj7 in range(int(min(_zs7) // 4.0), int(max(_zs7) // 4.0) + 1):
+                _rc7[(_ci7, _cj7)].append(_t7)
+    _gv7 = [_n7g for _row7g in grid_xyz for _n7g in _row7g]   # flat view of the grid nodes
+    # bridge spans keep their valley: under a bridge the pin may only push DOWN, never lift.
+    _st7 = [0.0]
+    for _q7 in range(1, len(centerline)):
+        _st7.append(_st7[-1] + math.hypot(centerline[_q7][0] - centerline[_q7 - 1][0],
+                                          centerline[_q7][2] - centerline[_q7 - 1][2]))
+    _ch7: dict = _add7(list)
+    for _q7, _pt7 in enumerate(centerline):
+        _ch7[(int(_pt7[0] // 24.0), int(_pt7[2] // 24.0))].append((_pt7[0], _pt7[2], _st7[_q7]))
+    def _near_station7(x, z):
+        best_d2, best_s = 1e18, None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for cx, cz, cs in _ch7.get((int(x // 24.0) + di, int(z // 24.0) + dj), ()):
+                    d2 = (x - cx) ** 2 + (z - cz) ** 2
+                    if d2 < best_d2:
+                        best_d2, best_s = d2, cs
+        return best_s
+    _FEATHER7 = 6.0
+    _hs7 = float(meta["spacing_m"]) * 0.55
+
+    def _deck_window_min7(px, pz, y_ref):
+        """Lowest deck surface within half a grid cell of (px,pz), 9-point scan, layer-guarded."""
+        lo = None
+        for ox, oz in ((0.0, 0.0), (_hs7, 0.0), (-_hs7, 0.0), (0.0, _hs7), (0.0, -_hs7),
+                       (_hs7, _hs7), (-_hs7, -_hs7), (_hs7, -_hs7), (-_hs7, _hs7)):
+            for t in _rc7.get((int((px + ox) // 4.0), int((pz + oz) // 4.0)), ()):
+                a, b, c = _rv7[t[0]], _rv7[t[1]], _rv7[t[2]]
+                d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if abs(d) < 1e-12:
+                    continue
+                w0 = ((b[2] - c[2]) * (px + ox - c[0]) + (c[0] - b[0]) * (pz + oz - c[2])) / d
+                w1 = ((c[2] - a[2]) * (px + ox - c[0]) + (a[0] - c[0]) * (pz + oz - c[2])) / d
+                w2 = 1.0 - w0 - w1
+                if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                    y = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                    if abs(y - y_ref) <= 20.0 and (lo is None or y < lo):
+                        lo = y
+        return lo
+
+    def _closest_on_road7(px, pz):
+        """(distance, deck_y) at the closest point of any road triangle within _FEATHER7 —
+        a CONTINUOUS field. (Nearest-vertex distance oscillates with vertex spacing and
+        printed a 0.2 m washboard into the feathered fill face.)"""
+        best = None
+        ci, cj = int(px // 4.0), int(pz // 4.0)
+        for di in (-2, -1, 0, 1, 2):
+            for dj in (-2, -1, 0, 1, 2):
+                for t in _rc7.get((ci + di, cj + dj), ()):
+                    a, b, c = _rv7[t[0]], _rv7[t[1]], _rv7[t[2]]
+                    # closest point on tri in 2D: clamp to each edge, keep the nearest candidate
+                    for (p1, p2) in ((a, b), (b, c), (c, a)):
+                        ex, ez = p2[0] - p1[0], p2[2] - p1[2]
+                        L2 = ex * ex + ez * ez or 1e-12
+                        tt = max(0.0, min(1.0, ((px - p1[0]) * ex + (pz - p1[2]) * ez) / L2))
+                        qx, qz = p1[0] + tt * ex, p1[2] + tt * ez
+                        d2 = (px - qx) ** 2 + (pz - qz) ** 2
+                        qy = p1[1] + tt * (p2[1] - p1[1])
+                        if best is None or d2 < best[0]:
+                            best = (d2, qy)
+        if best is None or best[0] > _FEATHER7 * _FEATHER7:
+            return None, None
+        return math.sqrt(best[0]), best[1]
+    _fixed7 = 0
+    _feathered7 = 0
+    for _i7 in range(len(_gv7)):
+        _gx7, _gy7, _gz7 = _gv7[_i7]
+        _best7 = None
+        for _t7 in _rc7.get((int(_gx7 // 4.0), int(_gz7 // 4.0)), ()):
+            _a7, _b7, _c7 = _rv7[_t7[0]], _rv7[_t7[1]], _rv7[_t7[2]]
+            _d7 = (_b7[2] - _c7[2]) * (_a7[0] - _c7[0]) + (_c7[0] - _b7[0]) * (_a7[2] - _c7[2])
+            if abs(_d7) < 1e-12:
+                continue
+            _w07 = ((_b7[2] - _c7[2]) * (_gx7 - _c7[0]) + (_c7[0] - _b7[0]) * (_gz7 - _c7[2])) / _d7
+            _w17 = ((_c7[2] - _a7[2]) * (_gx7 - _c7[0]) + (_a7[0] - _c7[0]) * (_gz7 - _c7[2])) / _d7
+            _w27 = 1.0 - _w07 - _w17
+            if _w07 >= -1e-6 and _w17 >= -1e-6 and _w27 >= -1e-6:
+                _y7 = _w07 * _a7[1] + _w17 * _b7[1] + _w27 * _c7[1]
+                if abs(_y7 - _gy7) <= 20.0 and (_best7 is None or _y7 < _best7):
+                    _best7 = _y7
+        if _best7 is None:
+            # outside the footprint: feather the pin down to natural ground over _FEATHER7 m so
+            # the transition is a graded fill face, not a vertical step at the pavement edge.
+            _d7f, _ey7 = _closest_on_road7(_gx7, _gz7)
+            if _ey7 is not None and abs(_ey7 - _gy7) <= 20.0:
+                # a cell can span the whole road: both verts outside the footprint, feathered to
+                # deck-EDGE height, chord crossing ABOVE the cambered low side. Cap by window-min.
+                _wm7 = _deck_window_min7(_gx7, _gz7, _gy7)
+                if _wm7 is not None and _wm7 < _ey7:
+                    _ey7 = _wm7
+                # smoothstep, not linear: zero-slope at both ends kills the crease the drive
+                # test reads as a kink at the deck edge and at the natural-ground end.
+                _t7f = _d7f / _FEATHER7
+                _w7f = 1.0 - (_t7f * _t7f * (3.0 - 2.0 * _t7f))
+                _tgt7 = (_ey7 - GRASS_CLEARANCE_M) * _w7f + _gy7 * (1.0 - _w7f)
+                if _tgt7 > _gy7:
+                    _s7 = _near_station7(_gx7, _gz7)
+                    if not (_s7 is not None and bridge_of(_s7)):
+                        _gv7[_i7] = (_gx7, _tgt7, _gz7)
+                        _feathered7 += 1
+            continue
+        # SAG-PROOF: pin to the MINIMUM deck height within half a grid cell (all 8 directions),
+        # not the deck at the exact point — otherwise 6 m grass chords bridge ABOVE the deck
+        # through sags and across cambered decks. With each vert at its local window minimum,
+        # every chord between verts stays under the deck everywhere on the span.
+        _wm7 = _deck_window_min7(_gx7, _gz7, _gy7)
+        if _wm7 is not None and _wm7 < _best7:
+            _best7 = _wm7
+        if _gy7 < _best7 - GRASS_CLEARANCE_M:
+            _s7 = _near_station7(_gx7, _gz7)
+            if _s7 is not None and bridge_of(_s7):
+                continue  # valley under a bridge deck stays open
+        if abs(_gy7 - (_best7 - GRASS_CLEARANCE_M)) > 1e-4:
+            # TWO-SIDED contact pin: under the pavement footprint the ground IS the deck
+            # underside (rt_california ships 0.0 mm median vertical — terrain CONFORMED to
+            # the road). Clamp-down alone left real mountainside ground metres below the
+            # outer deck half; pin it to deck - clearance in both directions.
+            _gv7[_i7] = (_gx7, _best7 - GRASS_CLEARANCE_M, _gz7)
+            _fixed7 += 1
+    if _fixed7 or _feathered7:
+        print(f"  [contact pin] {_fixed7} grass verts pinned to deck underside, {_feathered7} feathered at the edge")
+    # DOWN-ONLY pass over the rest of the pavement (shoulder/runoff/kerb): the pin covers the main
+    # ribbon; a grass vert can still poke through a flare mouth or shoulder deck. Never lifts.
+    _all8 = []
+    for _m8 in (shoulder, runoff, kerb):
+        for _t8 in _m8["tris"]:
+            _all8.append((_m8["vertices"][_t8[0]], _m8["vertices"][_t8[1]], _m8["vertices"][_t8[2]]))
+    _rc8: dict = _add7(list)
+    for _tt8 in _all8:
+        _xs8 = [_v[0] for _v in _tt8]; _zs8 = [_v[2] for _v in _tt8]
+        for _ci8 in range(int(min(_xs8) // 4.0), int(max(_xs8) // 4.0) + 1):
+            for _cj8 in range(int(min(_zs8) // 4.0), int(max(_zs8) // 4.0) + 1):
+                _rc8[(_ci8, _cj8)].append(_tt8)
+    _down8 = 0
+    for _i8 in range(len(_gv7)):
+        _gx8, _gy8, _gz8 = _gv7[_i8]
+        _lo8 = None
+        for _a8, _b8, _c8 in _rc8.get((int(_gx8 // 4.0), int(_gz8 // 4.0)), ()):
+            _d8 = (_b8[2] - _c8[2]) * (_a8[0] - _c8[0]) + (_c8[0] - _b8[0]) * (_a8[2] - _c8[2])
+            if abs(_d8) < 1e-12:
+                continue
+            _w08 = ((_b8[2] - _c8[2]) * (_gx8 - _c8[0]) + (_c8[0] - _b8[0]) * (_gz8 - _c8[2])) / _d8
+            _w18 = ((_c8[2] - _a8[2]) * (_gx8 - _c8[0]) + (_a8[0] - _c8[0]) * (_gz8 - _c8[2])) / _d8
+            _w28 = 1.0 - _w08 - _w18
+            if _w08 >= -1e-6 and _w18 >= -1e-6 and _w28 >= -1e-6:
+                _y8 = _w08 * _a8[1] + _w18 * _b8[1] + _w28 * _c8[1]
+                if abs(_y8 - _gy8) <= 20.0 and (_lo8 is None or _y8 < _lo8):
+                    _lo8 = _y8
+        if _lo8 is not None and _gy8 > _lo8 - GRASS_CLEARANCE_M:
+            _gv7[_i8] = (_gx8, _lo8 - GRASS_CLEARANCE_M, _gz8)
+            _down8 += 1
+    if _down8:
+        print(f"  [contact pin] {_down8} grass verts clamped under shoulder/runoff/kerb")
+    # write the pinned nodes back into the grid, THEN snapshot ground.local + mesh the grass
+    _nx7w = len(grid_xyz[0])
+    for _j7w in range(len(grid_xyz)):
+        for _i7w in range(_nx7w):
+            grid_xyz[_j7w][_i7w] = _gv7[_j7w * _nx7w + _i7w]
+    # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G. Reflects
+    # grid_xyz exactly (post ALL anti-poke/contact passes) — the surface the grass mesh triangulates.
+    write_ground_local(data / "ground.local.json", grid_xyz)
+    grass = ribbon.grass_terrain(grid_xyz)
 
     barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
     barrier_group = ("BARRIER_warning", "kerb")

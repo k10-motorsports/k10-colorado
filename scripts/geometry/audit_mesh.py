@@ -63,6 +63,58 @@ def _obj_groups(obj_path: Path, prefixes):
     return want
 
 
+def _obj_tris(obj_path: Path, prefixes):
+    """World-space triangles of every object whose name starts with one of `prefixes`.
+    OBJ face indices are global, so all verts are kept; faces are filtered by group."""
+    verts, tris, cur = [], [], False
+    for ln in obj_path.read_text().splitlines():
+        if ln.startswith("o "):
+            cur = ln[2:].strip().upper().startswith(prefixes)
+        elif ln.startswith("v "):
+            _, x, y, z = ln.split()[:4]
+            verts.append((float(x), float(y), float(z)))
+        elif ln.startswith("f ") and cur:
+            idx = [int(t.split("/")[0]) - 1 for t in ln.split()[1:]]
+            for k in range(1, len(idx) - 1):
+                tris.append((verts[idx[0]], verts[idx[k]], verts[idx[k + 1]]))
+    return tris
+
+
+def _tri_hash(tris, cell):
+    h = defaultdict(list)
+    for t in tris:
+        xs = [v[0] for v in t]; zs = [v[2] for v in t]
+        for ci in range(int(min(xs) // cell), int(max(xs) // cell) + 1):
+            for cj in range(int(min(zs) // cell), int(max(zs) // cell) + 1):
+                h[(ci, cj)].append(t)
+    return h
+
+
+def _surf_at(th, cell, x, z, y_ref, dy_max=20.0):
+    """Lowest surface height at (x,z) from hashed tris, within dy_max of y_ref (layer guard)."""
+    best = None
+    for a, b, c in th.get((int(x // cell), int(z // cell)), ()):
+        # skip near-vertical faces (paved skirts/aprons): they are walls, not road surface —
+        # grass legitimately crosses them and must not read as a poke.
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+        vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        nx_ = uy * vz - uz * vy; ny_ = uz * vx - ux * vz; nz_ = ux * vy - uy * vx
+        nl = math.sqrt(nx_ * nx_ + ny_ * ny_ + nz_ * nz_) or 1e-12
+        if abs(ny_) / nl < 0.5:
+            continue
+        d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+        if abs(d) < 1e-12:
+            continue
+        w0 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / d
+        w1 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / d
+        w2 = 1.0 - w0 - w1
+        if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+            yy = w0 * a[1] + w1 * b[1] + w2 * c[1]
+            if abs(yy - y_ref) <= dy_max and (best is None or yy < best):
+                best = yy
+    return best
+
+
 def _hash(pts_xyz, cell):
     h = defaultdict(list)
     for x, y, z in pts_xyz:
@@ -162,10 +214,15 @@ def audit(project_dir: str | Path) -> dict:
         if speared is not None:
             support_hits.append((round(px, 1), round(pz, 1), round(y_top, 1), speared))
 
-    # --- B. terrain poke (grass vert above a nearby road surface vert) ---
+    # --- B. terrain poke (grass vert above the road surface AT ITS OWN XZ) ---
+    # Footprint-exact: a grass vert is a poke only if it sits OVER the pavement, above it.
+    # (The old vertex-radius test false-positived on legitimate bench-cut faces standing
+    # legally beside the deck — 5 m into a 0.75:1 cut is ~6.7 m up by design.)
+    road_tris = _obj_tris(data / "track.obj", ("1ROAD",))
+    road_th = _tri_hash(road_tris, 8.0)
     poke_hits = []
     for x, y, z in g["1GRASS"]:
-        ry = road_y_near(x, z, POKE_R)
+        ry = _surf_at(road_th, 8.0, x, z, y)
         if ry is not None and y > ry + POKE_ABOVE_M:
             poke_hits.append((round(x, 1), round(z, 1), round(y - ry, 2)))
 
@@ -254,13 +311,15 @@ def audit(project_dir: str | Path) -> dict:
         gx0, gz0, gdx, gdz, gnx, gny, GY = gl["x0"], gl["z0"], gl["dx"], gl["dz"], gl["nx"], gl["ny"], gl["y"]
 
         def ground_surf(x, z):
+            # TRIANGLE-exact, same (a,b,c)+(a,c,d) split the grass renders and build_env seats on —
+            # bilinear here read up to ~1 m off the rendered triangle on steep slopes (phantom floats)
             fi = (x - gx0) / gdx if gdx else 0.0; fj = (z - gz0) / gdz if gdz else 0.0
-            i0 = max(0, min(gnx - 1, int(fi))); j0 = max(0, min(gny - 1, int(fj)))
-            i1 = min(gnx - 1, i0 + 1); j1 = min(gny - 1, j0 + 1)
-            ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
-            a = GY[j0][i0] * (1 - ti) + GY[j0][i1] * ti
-            b = GY[j1][i0] * (1 - ti) + GY[j1][i1] * ti
-            return a * (1 - tj) + b * tj
+            i0 = max(0, min(gnx - 2, int(fi))); j0 = max(0, min(gny - 2, int(fj)))
+            u = max(0.0, min(1.0, fi - i0)); v = max(0.0, min(1.0, fj - j0))
+            ya = GY[j0][i0]; yb = GY[j0][i0 + 1]; yc = GY[j0 + 1][i0 + 1]; yd = GY[j0 + 1][i0]
+            if u >= v:
+                return ya + u * (yb - ya) + v * (yc - yb)
+            return ya + v * (yd - ya) + u * (yc - yd)
 
         env = _obj_groups(envp, ("BUSHES", "TREES", "PALMS", "CONIFER"))
         # keep the ACTUAL coords of each column's lowest vert — sampling the ground at the quantized

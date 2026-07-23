@@ -145,6 +145,68 @@ def build_heightfield(coords: list[Vertex], spacing_m: float, margin_m: float) -
 
 # --- orchestration -------------------------------------------------------------
 
+CORRIDOR_HALF_M = 60.0    # lateral reach each side of the centerline
+CORRIDOR_STEP_S = 6.0     # along-road station step
+CORRIDOR_STEP_L = 5.0     # lateral step
+
+
+def fetch_corridor(coords, project_dir) -> None:
+    """Sample 3DEP at NEAR-NATIVE resolution in a corridor around the centerline; cache to
+    data/corridor.elev.json.
+
+    THE LARIAT LESSON (rc6): a 40 m area grid cannot contain an 8 m bench cut — the deck rode
+    2.35 m median above a mountainside that was smooth only because we sampled it blurry (Kevin's
+    photos: sunlight under the deck, trees below the pavement, the road a wall seen from the
+    grass). The lidar HAS the bench; this keeps it."""
+    import json as _j
+    import math as _m
+    out_p = Path(project_dir) / "data" / "corridor.elev.json"
+    n = len(coords)
+    if out_p.exists():
+        try:
+            c = _j.loads(out_p.read_text())
+            if c.get("n_src") == n:
+                print(f"[corridor] cache hit ({len(c['stations_lonlat'])} stations)")
+                return
+        except Exception:
+            pass
+    from scripts.elevation import usgs_3dep
+    lat0 = coords[0][1]
+    m_lon = 111_320.0 * _m.cos(_m.radians(lat0))
+    m_lat = 110_540.0
+    st_pts = [tuple(coords[0])]
+    acc = 0.0
+    for i2 in range(1, n):
+        dx = (coords[i2][0] - coords[i2 - 1][0]) * m_lon
+        dz = (coords[i2][1] - coords[i2 - 1][1]) * m_lat
+        acc += _m.hypot(dx, dz)
+        if acc >= CORRIDOR_STEP_S:
+            st_pts.append(tuple(coords[i2]))
+            acc = 0.0
+    offs = []
+    o = -CORRIDOR_HALF_M
+    while o <= CORRIDOR_HALF_M + 1e-6:
+        offs.append(round(o, 3))
+        o += CORRIDOR_STEP_L
+    pts = []
+    for i2, (lon, lat) in enumerate(st_pts):
+        j2 = min(i2 + 1, len(st_pts) - 1)
+        k2 = max(i2 - 1, 0)
+        tx = (st_pts[j2][0] - st_pts[k2][0]) * m_lon
+        tz = (st_pts[j2][1] - st_pts[k2][1]) * m_lat
+        L = _m.hypot(tx, tz) or 1.0
+        nx, nz = -tz / L, tx / L
+        for off in offs:
+            pts.append((lon + nx * off / m_lon, lat + nz * off / m_lat))
+    print(f"[corridor] sampling {len(pts)} pts ({len(st_pts)} stations x {len(offs)} offsets) at 3DEP native...")
+    z = usgs_3dep.sample_points(pts)
+    field = [z[i2 * len(offs):(i2 + 1) * len(offs)] for i2 in range(len(st_pts))]
+    out_p.write_text(_j.dumps({"n_src": n, "step_s": CORRIDOR_STEP_S, "step_l": CORRIDOR_STEP_L,
+                               "half_l": CORRIDOR_HALF_M, "stations_lonlat": st_pts,
+                               "offsets": offs, "z": field}))
+    print(f"[corridor] cached -> {out_p}")
+
+
 def build(project_dir: str | Path) -> dict:
     """Phase 2: sample 3DEP along the centerline, smooth, emit elevation json + heightfield + profile."""
     project_dir = Path(project_dir)
@@ -158,6 +220,7 @@ def build(project_dir: str | Path) -> dict:
     _cfgj = _json.loads((Path(project_dir) / "track.config.json").read_text())
     _cap_pct = float((_cfgj.get("road_profile", {}) or {}).get("max_grade_pct", 9.0))
     z_smooth = snap_to_ground(z_raw, spacing_m=CENTERLINE_SPACING_M, grade_cap_pct=_cap_pct)
+    fetch_corridor(coords, project_dir)   # near-native corridor terrain (the rc6 Lariat lesson)
 
     dist = [0.0]
     for i in range(1, len(coords)):

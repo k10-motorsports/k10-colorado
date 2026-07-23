@@ -549,15 +549,17 @@ def build(project_dir: str | Path) -> dict:
                                             _gl["nx"], _gl["ny"], _gl["y"])
 
         def ground_y(x, z):
-            """Conformed-ground height under a LOCAL (mirrored) x,z, bilinear on the shipped grass grid."""
+            """Conformed-ground height under a LOCAL (mirrored) x,z — TRIANGLE-exact on the shipped
+            grass grid, same (a,b,c)+(a,c,d) diagonal split grass_terrain renders. Bilinear here sat
+            up to ~1 m off the rendered triangle on steep corridor terrain and shipped hovering fences."""
             fi = (x - gx0) / gdx if gdx else 0.0
             fj = (z - gz0) / gdz if gdz else 0.0
-            i0 = max(0, min(gnx - 1, int(fi))); j0 = max(0, min(gny - 1, int(fj)))
-            i1 = min(gnx - 1, i0 + 1); j1 = min(gny - 1, j0 + 1)
-            ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
-            a = GY[j0][i0] * (1 - ti) + GY[j0][i1] * ti
-            b = GY[j1][i0] * (1 - ti) + GY[j1][i1] * ti
-            return a * (1 - tj) + b * tj
+            i0 = max(0, min(gnx - 2, int(fi))); j0 = max(0, min(gny - 2, int(fj)))
+            u = max(0.0, min(1.0, fi - i0)); v = max(0.0, min(1.0, fj - j0))
+            ya = GY[j0][i0]; yb = GY[j0][i0 + 1]; yc = GY[j0 + 1][i0 + 1]; yd = GY[j0 + 1][i0]
+            if u >= v:      # tri (a,b,c)
+                return ya + u * (yb - ya) + v * (yc - yb)
+            return ya + v * (yd - ya) + u * (yc - yd)   # tri (a,c,d)
 
         def y_at(lon, lat):
             return ground_y(sx * (lon - origin[0]) * m_lon, (lat - origin[1]) * m_lat)
@@ -860,6 +862,29 @@ def build(project_dir: str | Path) -> dict:
                 dest["tris"].append(tuple(nt))
             return lo, hi
         _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 8.8)
+        # THE MISSING MAST (Kevin, three times: "top half invisible", "half a light pole",
+        # "floating orb 12 feet above"): the OBJ literally contains a pedestal (0-2 m), a collar
+        # at 5 m and the head (9-11 m) — the mast was never exported as faces. Bridge it with a
+        # procedural 12-sided tapered cylinder so the head finally connects to the ground.
+        _ys0 = [v[1] for v in _lamp_module["vertices"]]
+        _ped_top = max((y for y in _ys0 if y < 3.0), default=0.0)
+        _head_bot = min((y for y in _ys0 if y > 6.0), default=max(_ys0))
+        if _head_bot - _ped_top > 2.0:
+            import math as _mm
+            _mv = _lamp_module["vertices"]; _mu = _lamp_module["uvs"]; _mt = _lamp_module["tris"]
+            _base_i = len(_mv)
+            _NS = 12
+            for _lvl, (_yy, _rr) in enumerate(((_ped_top - 0.05, 0.11), (_head_bot + 0.10, 0.075))):
+                for _k7 in range(_NS):
+                    _a7 = 2 * _mm.pi * _k7 / _NS
+                    _mv.append((_rr * _mm.cos(_a7), _yy, _rr * _mm.sin(_a7)))
+                    _mu.append((_k7 / _NS, float(_lvl)))
+            for _k7 in range(_NS):
+                _n7 = (_k7 + 1) % _NS
+                _b0 = _base_i + _k7; _b1 = _base_i + _n7
+                _t0 = _base_i + _NS + _k7; _t1 = _base_i + _NS + _n7
+                _mt.append((_b0, _t0, _t1)); _mt.append((_b0, _t1, _b1))
+            print(f"  lamp mast bridged: {_ped_top:.1f} -> {_head_bot:.1f} m (the OBJ never had one)")
         _top_y = max(v[1] for v in _lamp_module["vertices"])
         _top = [v for v in _lamp_module["vertices"] if v[1] > _top_y - 1.0]
         _lamp_fixture = (sum(v[0] for v in _top) / len(_top),
