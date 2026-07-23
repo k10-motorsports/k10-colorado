@@ -103,7 +103,8 @@ def instance_barriers(centerline_m: list[Vertex], widths_m: list[float], placeme
 
 
 def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=None,
-                  ground=None, module_len: float = 1.7, default_offset: float = 8.0) -> dict:
+                  ground=None, module_len: float = 1.7, default_offset: float = 8.0,
+                  max_dy: float = 45.0) -> dict:
     """Instance a module continuously along config-declared lap ranges — ranch fences at the
     right-of-way line, pylon runs across the plains. Each instance drapes to ``ground(x,z)`` so
     runs follow the terrain. ranges: [{start_m, end_m, side (+1 left/-1 right/0 both), offset_m}]."""
@@ -133,10 +134,22 @@ def instance_line(centerline_m, module: dict, *, ranges: list[dict], widths_m=No
                 nx, nz = -tz * side, tx * side
                 w_half = (widths_m[i] / 2.0 if widths_m else 0.0)
                 bx, bz = x + nx * (w_half + off), z + nz * (w_half + off)
-                by = ground(bx, bz) if ground else y
+                # seat on the MIN ground over the module's footprint (center + both ends): a
+                # center-point seat on a bank flies the downhill end of the panel (+1.6 m fence
+                # floats). Burying the uphill end slightly is what real fence posts do.
+                if ground and module_len <= 10.0:      # short modules (fences); pylons keep center-seat
+                    _hl = module_len / 2.0
+                    _cands = [ground(bx, bz), ground(bx + tx * _hl, bz + tz * _hl),
+                              ground(bx - tx * _hl, bz - tz * _hl)]
+                    _cands = [c for c in _cands if c is not None]
+                    by = min(_cands) if _cands else None
+                elif ground:
+                    by = ground(bx, bz)
+                else:
+                    by = y
                 # LAYER WINDOW safety net: a ground sample tens of metres off the run's own station
                 # height is corrupt or another terrain layer — skip the instance, never fly/bury it.
-                if by is None or abs(by - y) > 45.0:
+                if by is None or abs(by - y) > max_dy:
                     continue
                 # footing sink (per-range): tall towers on rough terrain bury their footings — a
                 # 10 m-grid drape leaves a corner up to ~1 m proud of the true surface otherwise.

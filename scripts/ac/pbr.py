@@ -36,9 +36,16 @@ TEXTURES = {
     "BRICK":   ("brick_diffuse.jpg",   "brick_normal.jpg",   0.90, (0.45, 0.28, 0.22, 1), 0.0, False),  # red brick (mined Hamburg) — building variety
     "STUCCO":  ("stucco_diffuse.jpg",  "stucco_normal.jpg",  0.88, (0.62, 0.32, 0.28, 1), 0.0, False),  # painted stucco (mined Hamburg) — building variety
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
+    "1WALL_WOODF": ("wood_fence.png", "wood_fence_normal.png", 0.9, (0.42, 0.33, 0.24, 1), 0.0, False),  # wooden warning fences (must precede 1WALL — dict-ordered prefix match)
     "1WALL":   ("concrete_barrier_diffuse.png", "concrete_barrier_normal.png", 0.85, (0.72, 0.72, 0.70, 1), 0.0, False),  # Kevin's 4 m concrete barrier modules (props.concrete_barriers)
     "FENCEWOOD": ("ranch_fence_diffuse.png", "ranch_fence_normal.png", 0.9, (0.45, 0.35, 0.25, 1), 0.0, False),  # split-rail ranch fence panels (scenery.fences, right-of-way line)
+    "WOODFENCE": ("wood_fence.png", "wood_fence_normal.png", 0.9, (0.42, 0.33, 0.24, 1), 0.0, False),  # Kevin's modular wooden fence (replaces most barriers off the driving surface)
+    "PINETREE": ("pine_leaves.png", None, 0.95, (0.15, 0.28, 0.14, 1), 0.0, False),   # 3D pine (near-corridor forest), alpha-cut
+    "POPLARLEAF": ("poplar_leaves.png", None, 0.95, (0.24, 0.34, 0.15, 1), 0.0, False),  # poplar canopy (SC creek riparian band)
+    "POPLARBARK": ("poplar_bark.png", None, 0.92, (0.42, 0.38, 0.32, 1), 0.0, False),
+    "LAMPNEW": ("street_lamp_new.png", None, 0.55, (0.30, 0.31, 0.33, 1), 0.25, False),  # purpose-modeled street lamp (emissive baked into diffuse, opacity in alpha)
     "EUROSIGN": ("eurosign_atlas.png", None, 0.5, (0.85, 0.85, 0.85, 1), 0.1, False),  # circular sign faces, alpha-cut (scenery.road_signs)
+    "USSIGN": ("mutcd_atlas.png", None, 0.5, (0.94, 0.70, 0.14, 1), 0.1, False),  # MUTCD yellow-diamond curve/hairpin warnings (Kevin: signage where turns irl are)
     "CONTAINER": ("container_diffuse.jpg", "container_normal.jpg", 0.70, (0.55, 0.30, 0.26, 1), 0.0, False),  # mined Hamburg shipping-container stacks (warehouse yards)
     "CHAINLINK": ("chainlink_diffuse.png", None, 0.60, (0.55, 0.56, 0.58, 1), 0.30, False),  # procedural alpha-cutout chain-link (warehouse yard fences)
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
@@ -109,11 +116,15 @@ def load_overrides(project_dir: str | Path) -> dict[str, dict]:
                     ent[k] = str(p)
             if ent:
                 out[str(mat).upper()] = ent
-    # 2) capture-level overrides (real-world textures) win over config
+    # 2) capture-level overrides (real-world textures) fill in ONLY where the config didn't
+    #    speak — an explicit track.config.json override is the human's word and wins (Kevin:
+    #    Sand Creek uses the Lariat's road/grass look, not the phone-captured pavement).
     cap = project_dir / "source" / "realworld_capture.json"
     if not cap.exists():
         return out
     for o in json.loads(cap.read_text()).get("texture_overrides", []):
+        if str(o.get("material", "")).upper() in out:
+            continue
         ent = {}
         if o.get("diffuse"):
             ent["diffuse"] = str(project_dir / o["diffuse"])

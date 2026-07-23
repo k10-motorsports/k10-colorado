@@ -735,6 +735,67 @@ def build(project_dir: str | Path) -> dict:
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tf.random() * math.pi))
                     ntrees += 1
 
+    # --- 3D FOREST (scenery.forest3d): real tree meshes in the corridor the driver reads.
+    #     Billboards carry the mass on the slopes; within ~off_max of the verge the trees are
+    #     actual geometry (Kevin: "a lot more trees... particularly the mountain track as it is
+    #     pretty forested irl"). Modules from the Dropbox asset drop, decimated to ~2-3k tris.
+    forest3d_meshes = {}
+    f3 = scn.get("forest3d") or {}
+    if f3:
+        _f3r = random.Random(77)
+        from scripts.environment import props as props_mod
+        _models3 = Path(__file__).resolve().parents[2] / "assets" / "models"
+        _mods3 = []
+        if f3.get("module", "pine") == "pine":
+            _mods3 = [("PINETREE", props_mod.load_module(_models3 / "pine_tree.obj"))]
+        else:
+            _mods3 = [("POPLARLEAF", props_mod.load_module(_models3 / "poplar_leaves.obj")),
+                      ("POPLARBARK", props_mod.load_module(_models3 / "poplar_trunk.obj"))]
+        for _nm3, _ in _mods3:
+            forest3d_meshes[_nm3] = {"vertices": [], "uvs": [], "tris": []}
+        _sp3 = float(f3.get("spacing_m", 26.0))
+        _o0 = float(f3.get("off_min_m", 7.0)); _o1 = float(f3.get("off_max_m", 26.0))
+        _cap3 = int(f3.get("cap", 700))
+        _s0 = float(f3.get("scale_min", 2.2)); _s1 = float(f3.get("scale_max", 4.2))
+        _n3 = 0
+        _acc3 = 0.0
+        for i in range(1, len(loop)):
+            _acc3 += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+            if _acc3 < _sp3 or _n3 >= _cap3:
+                continue
+            _acc3 = 0.0
+            x, y, z = loop[i]
+            a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
+            tx, tz = b[0] - a[0], b[2] - a[2]
+            tl = math.hypot(tx, tz) or 1e-6
+            nx, nz = -tz / tl, tx / tl
+            side = 1.0 if (i // 7) % 2 == 0 else -1.0    # alternating, deterministic
+            off = widths[i] / 2 + _o0 + _f3r.random() * (_o1 - _o0)
+            rx, rz = x + nx * off * side, z + nz * off * side
+            if on_road(rx, rz):
+                continue
+            gy3 = seat_y(rx, rz, 1.2)
+            if gy3 is None:
+                continue
+            gy3 += 0.15                                 # seat_y sinks 0.25 for billboards; trees want less
+            sc3 = _s0 + _f3r.random() * (_s1 - _s0)
+            ya3 = _f3r.random() * math.pi * 2
+            _cy, _sy = math.cos(ya3), math.sin(ya3)
+            if abs(y - gy3) > 25.0:
+                continue                                 # layer guard: never a tree from another leg
+            for _nm3, _mod3 in _mods3:
+                M = forest3d_meshes[_nm3]
+                base3 = len(M["vertices"])
+                for mx, my, mz in _mod3["vertices"]:
+                    wx = mx * sc3 * _cy - mz * sc3 * _sy
+                    wz = mx * sc3 * _sy + mz * sc3 * _cy
+                    M["vertices"].append((rx + wx, gy3 + my * sc3, rz + wz))
+                M["uvs"].extend(_mod3["uvs"])
+                M["tris"].extend((a3 + base3, b3_ + base3, c3 + base3) for a3, b3_, c3 in _mod3["tris"])
+            _n3 += 1
+        print(f"  forest3d: {_n3} {f3.get('module', 'pine')} instances "
+              f"({sum(len(m['vertices']) for m in forest3d_meshes.values())} verts)")
+
     # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
     # Gated to waterways NEAR the lap: the zones bbox carries every stream in the region (Clear Creek
     # runs the whole north edge at Lookout), and forest planted along all of them is budget spent
@@ -950,7 +1011,11 @@ def build(project_dir: str | Path) -> dict:
             nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
             sx3, sz3 = x2 + nx2 * (widths[i2] / 2 + 2.2), z2 + nz2 * (widths[i2] / 2 + 2.2)
             if not on_surface(sx3, sz3):    # verge furniture: tight on-pavement test, not the 4 m foliage margin
-                _euro_sign(sx3, sz3, 2, -tx2, -tz2)          # sharp-turn arrow faces traffic
+                # MUTCD atlas cell by direction + severity: 0/1 curve L/R, 2/3 hairpin L/R
+                _tdeg = float(_sp.get("turn_deg", 60.0))
+                _left = _tdeg > 0
+                _face = (2 if _left else 3) if abs(_tdeg) >= 100.0 else (0 if _left else 1)
+                _euro_sign(sx3, sz3, _face, -tx2, -tz2)      # warning diamond faces traffic
         _sst = [0.0]
         for i2 in range(1, len(loop)):
             _sst.append(_sst[-1] + math.hypot(loop[i2][0] - loop[i2 - 1][0], loop[i2][2] - loop[i2 - 1][2]))
@@ -1233,7 +1298,9 @@ def build(project_dir: str | Path) -> dict:
                # fences/pylons/euro-signs shipped as nothing). Keep them in this list forever.
                *split_mesh_under_cap("FENCEWOOD", "road", ranch_fences),
                *split_mesh_under_cap("GANTRY_pylons", "road", pylon_line),
-               ("EUROSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
+               ("USSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
+               *[g for nm3, m3 in (forest3d_meshes.items() if f3 else [])
+                 for g in split_mesh_under_cap(nm3, "grass", m3)],
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])

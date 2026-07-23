@@ -324,6 +324,7 @@ def build(project_dir: str | Path) -> dict:
     widths_cl = _smooth(widths_cl)
     # FLARE the ribbon at the real intersections the circuit drives through (widen the road itself, one
     # continuous surface — NOT an overlapping pad, which poked above the sloped road and read as bumps).
+    widths_base_cl = widths_cl[:]        # pre-flare: the street's own line (sidewalks follow THIS)
     junctions = detect_junctions(ways, cl, profile=profile)
     corners = detect_turn_corners(ways, cl, profile=profile)
     if corners:
@@ -379,6 +380,12 @@ def build(project_dir: str | Path) -> dict:
     else:
         widths = widths_cl
     widths = [round(w, 2) for w in widths]
+    if len(widths_base_cl) != n_local:
+        widths_base = [widths_base_cl[min(len(widths_base_cl) - 1,
+                       round(i * (len(widths_base_cl) - 1) / max(n_local - 1, 1)))] for i in range(n_local)]
+    else:
+        widths_base = widths_base_cl
+    local["widths_base_m"] = [round(w, 2) for w in widths_base]
     local["widths_m"] = widths
     local["default_width_m"] = round(sum(widths) / len(widths), 2)
     (data / "centerline.local.json").write_text(json.dumps(local), encoding="utf-8")

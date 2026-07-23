@@ -599,7 +599,15 @@ def build(project_dir: str | Path) -> dict:
     # onto grass_surf, so nothing hovers over the terrain even on a 10 m embankment.
     edge_cfg = cfg_raw.get("road_edge", {})
     if edge_cfg.get("profile") == "sidewalk":
-        shoulder = ribbon.curb_sidewalk(centerline, widths, lift=ROAD_LIFT_M,
+        # SIDEWALKS FOLLOW THE STREET'S LINE, not the pavement boundary (Kevin: "very
+        # zigzaggy"): the walk's offset uses a rolling-median width (~30 m window) so flare
+        # jitter and per-way width steps don't wiggle it; max() with the real width keeps the
+        # curb outside the pavement at true junction mouths.
+        _swin = 4
+        _sw_line = [sorted(widths[max(0, i - _swin):i + _swin + 1])[len(widths[max(0, i - _swin):i + _swin + 1]) // 2]
+                    for i in range(len(widths))]
+        _sw_widths = [max(a, b) for a, b in zip(_sw_line, widths)]
+        shoulder = ribbon.curb_sidewalk(centerline, _sw_widths, lift=ROAD_LIFT_M,
                                         grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk, ground=grass_surf,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
                                         curb_face_w=float(edge_cfg.get("curb_face_w", 0.08)),
@@ -1154,24 +1162,39 @@ def build(project_dir: str | Path) -> dict:
                 ring_mesh["tris"].append((_i0, _j0, _j1))
                 ring_mesh["tris"].append((_i0, _j1, _i1))
         # ---- stone works along this side ----
-        def _runs17(flag):
-            out, run = [], []
+        def _runs17(flag, exit_flag=None, min_run=5, max_gap=0):
+            # HYSTERESIS + GAP-MERGE: the warrant flickers station-to-station on rolling drops,
+            # which shipped parapets as short separated boxes ("tall tombstones"). Once a run is
+            # open it stays open while exit_flag holds, and gaps up to max_gap stations are
+            # bridged into one continuous wall.
+            exit_flag = exit_flag or flag
+            out, run, gap, open_ = [], [], 0, False
             for _q, _sc in enumerate(_secs):
-                if flag(_sc) and not bridge_of(_sc["arc"]):
-                    run.append(_q)
+                ok = (exit_flag(_sc) if open_ else flag(_sc)) and not bridge_of(_sc["arc"])
+                if ok:
+                    if gap and run:
+                        run.extend(range(run[-1] + 1, _q))    # bridge the small gap
+                    run.append(_q); gap = 0; open_ = True
                 else:
-                    if len(run) >= 5:
-                        out.append(run)
-                    run = []
-            if len(run) >= 5:
+                    gap += 1
+                    if gap > max_gap:
+                        if len(run) >= min_run:
+                            out.append(run)
+                        run, open_, gap = [], False, 0
+            if len(run) >= min_run:
                 out.append(run)
             return out
         # stone parapets: fill edges dropping > 2 m (incl. wall tops) — 0.5 h x 0.4 w at the verge
-        for _run in _runs17(lambda sc: (not sc["cutting"]) and sc["drop"] > 2.0):
+        for _run in _runs17(lambda sc: (not sc["cutting"]) and sc["drop"] > 2.0,
+                            exit_flag=lambda sc: (not sc["cutting"]) and sc["drop"] > 1.4,
+                            min_run=10, max_gap=4):
             _bs17 = len(para_mesh["vertices"])
-            for _q in _run:
+            # smooth the cap line: a parapet is coursed masonry, its top runs fair, not jittery
+            _vys = [_secs[_q]["verge"][1] for _q in _run]
+            _vys = [sum(_vys[max(0, k - 2):k + 3]) / len(_vys[max(0, k - 2):k + 3]) for k in range(len(_vys))]
+            for _qi, _q in enumerate(_run):
                 _sc = _secs[_q]
-                _vx, _vy, _vz = _sc["verge"]
+                _vx, _vy, _vz = _sc["verge"][0], _vys[_qi], _sc["verge"][2]
                 _nx17, _nz17 = _sc["n"]
                 for _off17, _hy17 in ((-0.2, -0.15), (-0.2, 0.5), (0.2, 0.5), (0.2, -0.15)):
                     para_mesh["vertices"].append((_vx + _nx17 * _off17, _vy + _hy17, _vz + _nz17 * _off17))
@@ -1186,9 +1209,11 @@ def build(project_dir: str | Path) -> dict:
                 para_mesh["tris"].append((_e0, _e0 + 1, _e0 + 2))
                 para_mesh["tris"].append((_e0, _e0 + 2, _e0 + 3))
         # face skins: quad strip verge->meet pushed 5 cm out, stone on walls / granite on rock cuts
-        for _skin, _flag in ((wallskin, lambda sc: sc.get("wall")),
-                             (rockskin, lambda sc: sc["cutting"] and sc["drop"] > 2.0)):
-            for _run in _runs17(_flag):
+        for _skin, _flag, _xflag in (
+                (wallskin, lambda sc: sc.get("wall"), lambda sc: (not sc["cutting"]) and sc["drop"] > 3.2),
+                (rockskin, lambda sc: sc["cutting"] and sc["drop"] > 2.0,
+                 lambda sc: sc["cutting"] and sc["drop"] > 1.4)):
+            for _run in _runs17(_flag, exit_flag=_xflag, min_run=8, max_gap=4):
                 _bs17 = len(_skin["vertices"])
                 for _q in _run:
                     _sc = _secs[_q]
@@ -1209,6 +1234,52 @@ def build(project_dir: str | Path) -> dict:
 
     barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
     barrier_group = ("BARRIER_warning", "kerb")
+    # FENCES, NOT BARRIERS (Kevin: "barriers are getting in the way of driving... reserve
+    # barriers for only the tightest corners after fast sections to showcase danger"): keep the
+    # concrete only where a FAST approach (last ~300 m nearly straight) meets a SHARP corner
+    # (>=70 deg, or a blind crest corner); every other warning run becomes a wooden fence set
+    # FURTHER off the driving surface.
+    _stb = [0.0]
+    for _i in range(1, len(centerline)):
+        _stb.append(_stb[-1] + math.hypot(centerline[_i][0] - centerline[_i - 1][0],
+                                          centerline[_i][2] - centerline[_i - 1][2]))
+
+    def _hdb(i):
+        a, b = max(0, i - 2), min(len(centerline) - 1, i + 2)
+        return math.atan2(centerline[b][2] - centerline[a][2], centerline[b][0] - centerline[a][0])
+
+    def _fast_approach(idx):
+        a = idx
+        while a > 0 and _stb[idx] - _stb[a] < 300.0:
+            a -= 1
+        worst = 0.0
+        j = a
+        while j < idx - 4:
+            worst = max(worst, abs((math.degrees(_hdb(j + 4) - _hdb(j)) + 180.0) % 360.0 - 180.0))
+            j += 4
+        return worst < 18.0        # never turns hard in the approach = carrying speed
+
+    _keep_spots, _fence_spots = [], []
+    for _sp in barrier_spots:
+        danger = (abs(_sp.get("turn_deg", 0)) >= 70 and _fast_approach(_sp["start_idx"])) \
+                 or (_sp.get("crest") and abs(_sp.get("turn_deg", 0)) >= 45)
+        (_keep_spots if danger else _fence_spots).append(_sp)
+    print(f"  barriers: {len(_keep_spots)} danger runs keep concrete; "
+          f"{len(_fence_spots)} runs become wooden fences")
+    barrier_spots = _keep_spots
+    fence_wood = {"vertices": [], "uvs": [], "tris": []}
+    if _fence_spots:
+        from scripts.environment import props as _props_f
+        _wf_path = Path(__file__).resolve().parents[2] / "assets" / "models" / "wood_fence_panel.obj"
+        if _wf_path.exists():
+            _wf_mod = _props_f.load_module(_wf_path)
+            _ranges = [{"start_m": _stb[_sp["start_idx"]], "end_m": _stb[min(_sp["end_idx"], len(_stb) - 1)],
+                        "side": int(_sp["side"]), "offset_m": 3.0} for _sp in _fence_spots]
+            # max_dy=3.5: a fence rides near its own road grade — a bank/creek drop under a
+            # module means bridge territory, skip it (one panel shipped floating +1.62 m).
+            fence_wood = _props_f.instance_line(centerline, _wf_mod, ranges=_ranges, widths_m=widths,
+                                                ground=lambda x, z: _grid_trisurf(grid_xyz, x, z),
+                                                module_len=1.73, max_dy=3.5)
     if cfg_raw.get("props", {}).get("concrete_barriers"):
         # Kevin's 4 m concrete barrier modules replace the procedural swept jersey — real geometry,
         # instanced along the SAME warning-barrier runs, shipped physical as 1WALL_* (collidable).
@@ -1450,6 +1521,8 @@ def build(project_dir: str | Path) -> dict:
               *split_mesh_under_cap("1KERB_corners", "kerb", kerb),
               ("MARKINGS", "kerb", marks),
               ("MARKINGS_crosswalk", "kerb", xwalk)]
+    if fence_wood["tris"]:
+        groups.extend(split_mesh_under_cap("1WALL_WOODF_warn", "kerb", fence_wood))
     if para_mesh["tris"]:
         groups.extend(split_mesh_under_cap("1WALL_PARA_stone", "kerb", para_mesh))
     if wallskin["tris"]:

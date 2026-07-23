@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -80,7 +80,7 @@
     "_doc": "Per-track foliage/scatter knobs read by scripts/environment/build_env.py. Defaults (shown) reproduce the original look; override per track (e.g. a desert track wants sparser, lower scrub). corridor_margin_m keeps ALL scatter this far clear of every road (main loop + connectors).",
     "corridor_margin_m": 3.0,
     "tree_step_m": 28.0,
-    "tree_cap": 700,
+    "tree_cap": 1400,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 6.0,
@@ -98,7 +98,20 @@
       "flip_up": false
     },
     "lamp_model": true,
-    "lamp_height_m": 9.0
+    "lamp_height_m": 9.0,
+    "forest3d": {
+      "module": "poplar",
+      "spacing_m": 42.0,
+      "off_min_m": 9.0,
+      "off_max_m": 30.0,
+      "cap": 260,
+      "scale_min": 0.9,
+      "scale_max": 1.6,
+      "_doc": "3D poplars scattered near the streets; riparian billboards stay on the creek"
+    },
+    "road_signs": {
+      "enabled": true
+    }
   },
   "origin": "centroid",
   "true_north_rotation_deg": 180.0,
@@ -159,5 +172,17 @@
     "concrete_barriers": true,
     "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
   },
-  "archetype": "street_circuit"
+  "archetype": "street_circuit",
+  "texture_overrides": {
+    "1ROAD": {
+      "diffuse": "assets/textures/asphalt_cracked_diffuse.jpg",
+      "normal": "assets/textures/asphalt_cracked_normal.jpg",
+      "_doc": "Kevin: use the Lariat's road texture (stock cracked asphalt), not the phone capture"
+    },
+    "1GRASS": {
+      "diffuse": "assets/textures/grass_diffuse.jpg",
+      "normal": "assets/textures/grass_normal.jpg",
+      "_doc": "Kevin: the Lariat's alpine grass look on Sand Creek too"
+    }
+  }
 }

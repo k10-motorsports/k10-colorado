@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -61,9 +61,9 @@
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
     "tree_step_m": 7.0,
-    "tree_cap": 16000,
-    "fill_range_m": 140.0,
-    "fill_per_station": 4,
+    "tree_cap": 40000,
+    "fill_range_m": 220.0,
+    "fill_per_station": 6,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -123,7 +123,17 @@
       ],
       "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
     },
-    "lamp_height_m": 9.0
+    "lamp_height_m": 9.0,
+    "forest3d": {
+      "module": "pine",
+      "spacing_m": 24.0,
+      "off_min_m": 7.0,
+      "off_max_m": 26.0,
+      "cap": 700,
+      "scale_min": 2.2,
+      "scale_max": 4.2,
+      "_doc": "real 3D pines in the driver's corridor; billboards carry the slopes"
+    }
   },
   "origin": "centroid",
   "surfaces": {

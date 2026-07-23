@@ -280,18 +280,26 @@ def audit(project_dir: str | Path) -> dict:
     for x, y, z in g["1WALL"]:
         k = (round(x / 0.6), round(z / 0.6)); wall_col[k] = min(wall_col[k], y)
     wall_float = 0; worst_float = 0.0
+    # A rail/arm member spanning between posts has NO base verts in its own 0.6 m column — its
+    # min-y is the rail 2 m up, which read as "+1.6 floating wall" on a perfectly seated wooden
+    # fence. A column only floats if no SUPPORTED column (gap <= 0.6) stands within reach — the
+    # kn5 gate's arm-exclusion rule, ported here.
+    gaps = {}
     for (kx, kz), by in wall_col.items():
         x, z = kx * 0.6, kz * 0.6
-        # search 4.5 m: the wall sits ~offset (3.2 m) past the road edge, so the deck road it rides is just
-        # over 3 m away — include it, or a flyover railing false-reads as "floating" over the ground below.
         gnd = nearest_y(grass_hash4, x, z, 4.5, 4.0) + nearest_y(road_hash4, x, z, 4.5, 4.0)
         if gnd:
-            gap = by - max(gnd)
-            # 1.4, not 0.6: barrier modules seat on the INTERPOLATED drape surface; on steep
-            # embankments the nearest mesh VERTEX 3 m away legitimately differs by >1 m. True
-            # hovering (the v0.7.4 deck-height bug) measured 1.5-4 m and still trips this.
-            if gap > 1.4:
-                wall_float += 1; worst_float = max(worst_float, gap)
+            gaps[(kx, kz)] = by - max(gnd)
+    supported = {k for k, gp in gaps.items() if gp <= 0.6}
+    R_SUP = 4       # 4 columns = 2.4 m — a fence post every 1.73 m is always within reach
+    for (kx, kz), gap in gaps.items():
+        # 1.4 threshold: barrier modules seat on the INTERPOLATED drape surface; on steep
+        # embankments the nearest mesh VERTEX 3 m away legitimately differs by >1 m.
+        if gap > 1.4:
+            if any((kx + di, kz + dj) in supported for di in range(-R_SUP, R_SUP + 1)
+                   for dj in range(-R_SUP, R_SUP + 1)):
+                continue           # a grounded post nearby: rail member, not a hover
+            wall_float += 1; worst_float = max(worst_float, gap)
     # F. curb-not-flush — a KERB vert that meets NEITHER the road nor the ground within reach (a gap/step).
     curb_bad = 0
     for x, y, z in g["KERB"]:
