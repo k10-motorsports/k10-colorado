@@ -239,7 +239,7 @@ def generate(project_dir: str | Path) -> Path:
                         "MATERIALS = " + ", ".join(f"{g}_mat" for g in _ussign),
                         "CONDITION = NIGHT_SMOOTH",
                         "KEY_0 = ksEmissive",
-                        "VALUE_0 = 1.6, 1.35, 0.5",   # retroreflective sheeting reads in headlights
+                        "VALUE_0 = 5.5, 4.6, 1.6",    # retroreflective sheeting POPS at night (Kevin: not lit)
                         ""]
             _danger = [g for g in groups if g.upper().startswith("DANGERLITE")]
             if _danger:

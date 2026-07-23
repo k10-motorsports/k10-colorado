@@ -313,6 +313,28 @@ def audit(project_dir: str | Path) -> dict:
         near_g = any(abs(y - ry) < 0.5 for ry in nearest_y(grass_hash4, x, z, 2.0, 4.0))
         if not (near_r or near_g):
             curb_bad += 1
+    # I. sidewalk-isolating-pavement — Kevin's invariant: "sidewalks should never isolate driving
+    #    surfaces." A raised sidewalk curb (>8 cm over the road beside it) with pavement at similar
+    #    height on BOTH sides of it is a divider stranding a drivable island; the builder must have
+    #    rolled it flat. Tri-exact against ALL 1ROAD surfaces; rolled humps (<=8 cm) pass.
+    sw_isolate = 0
+    sw_worst: list = []
+    sw_verts = _obj_groups(data / "track.obj", ("1KERB_SIDEWALK",))["1KERB_SIDEWALK"]
+    if sw_verts:
+        all_road_th = _tri_hash(_obj_tris(data / "track.obj", ("1ROAD",)), 4.0)
+        for x, y, z in sw_verts:
+            ry = _surf_at(all_road_th, 4.0, x, z, y, dy_max=3.0)
+            if ry is None or y - ry <= 0.08:
+                continue
+            for adeg in range(0, 180, 30):
+                dx = 3.5 * math.cos(math.radians(adeg)); dz = 3.5 * math.sin(math.radians(adeg))
+                fy = _surf_at(all_road_th, 4.0, x + dx, z + dz, y, dy_max=3.0)
+                ny2 = _surf_at(all_road_th, 4.0, x - dx, z - dz, y, dy_max=3.0)
+                if fy is not None and ny2 is not None and abs(fy - ny2) < 0.5:
+                    sw_isolate += 1
+                    if len(sw_worst) < 8:
+                        sw_worst.append((round(x, 1), round(z, 1), round(y - ry, 2)))
+                    break
     # G. prop-floating — a scatter billboard (bush/tree/palm) whose BASE hovers above the ground SURFACE
     #    beneath it. Measured against the conformed-ground sampler (data/ground.local.json) — the SAME
     #    surface the grass mesh + the prop placement use — so it is not fooled by a steep slope's
@@ -419,6 +441,8 @@ def audit(project_dir: str | Path) -> dict:
         "F_curb_not_flush": curb_bad,
         "G_prop_floating": prop_float,
         "H_ground_above_deck": ground_cut,
+        "I_sidewalk_isolating": sw_isolate,
+        "I_samples": sw_worst,
         "worst_ground_cut_m": round(worst_cut, 2),
         "worst_poke_m": round(max((h[2] for h in poke_hits), default=0.0), 2),
         "worst_float_m": round(worst_float, 2),
@@ -439,8 +463,10 @@ def audit(project_dir: str | Path) -> dict:
     print(f"  G. plants floating over ground : {'(env not built)' if prop_float is None else prop_float}")
     print(f"  H. ground cutting into road    : {'(no ground grid)' if ground_cut is None else ground_cut}"
           f"  (worst +{report['worst_ground_cut_m']} m)")
+    print(f"  I. sidewalk isolating pavement : {sw_isolate}"
+          + (f"  e.g. {sw_worst[:3]}" if sw_worst else ""))
     total = (len(support_hits) + len(poke_hits) + len(cross) + wall_on_road + wall_float + curb_bad
-             + (prop_float or 0) + (ground_cut or 0))
+             + (prop_float or 0) + (ground_cut or 0) + sw_isolate)
     print(f"  => {'CLEAN' if total == 0 else str(total) + ' issues'}")
     return report
 
@@ -448,5 +474,6 @@ def audit(project_dir: str | Path) -> dict:
 if __name__ == "__main__":
     r = audit(sys.argv[1] if len(sys.argv) > 1 else "projects/san-diego-freeway-loop")
     hard = (r["A_supports_in_road"] + r["B_terrain_poke"] + r["D_wall_on_road"] + r["E_wall_floating"]
-            + r["F_curb_not_flush"] + (r["G_prop_floating"] or 0) + (r["H_ground_above_deck"] or 0))
+            + r["F_curb_not_flush"] + (r["G_prop_floating"] or 0) + (r["H_ground_above_deck"] or 0)
+            + r["I_sidewalk_isolating"])
     sys.exit(1 if hard else 0)   # C (junction crossings) reported but non-gating (walls are gapped there)

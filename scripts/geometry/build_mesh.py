@@ -207,7 +207,8 @@ BRIDGE_MIN_SPAN_M = 12.0   # ...over at least this long a run (a real span, not 
 
 
 def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]],
-                     raw_ground: tuple[list[float], list[float]] | None = None):
+                     raw_ground: tuple[list[float], list[float]] | None = None,
+                     paved_zones: list[tuple[float, float, float, float]] | None = None):
     """Return ``bridge_of(station_m) -> bool``: True where the road rides a sustained height above the
     bare earth (a real gap to span — Sand Creek's creek). Those stations get NO embankment fill (the
     valley stays open under the deck) and a bridge structure instead. Returns a no-op if there are none.
@@ -236,6 +237,15 @@ def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]
         high = [(centerline_m[i][1] - _ground_at(st[i])) > BRIDGE_MIN_H_M for i in range(len(centerline_m))]
     else:
         high = [(cy - _grid_bilinear(natural_grid, cx, cz)) > BRIDGE_MIN_H_M for cx, cy, cz in centerline_m]
+    # junction-mouth fillets are PAVED fans on grade — real construction fills them, never
+    # bridges them (the bezier-era arc minted a 24 m phantom span inside the US-6/19th mouth)
+    if paved_zones:
+        for i in range(len(centerline_m)):
+            cx, cy, cz = centerline_m[i]
+            for zx, zz, zy, zr in paved_zones:
+                if abs(cy - zy) < 15.0 and math.hypot(cx - zx, cz - zz) <= zr:
+                    high[i] = False
+                    break
     spans: list[tuple[float, float]] = []
     i = 0
     n = len(centerline_m)
@@ -337,7 +347,8 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
     return out
 
 
-def finished_centerline(raw_pts: list[Vertex], cfg_raw: dict, *, mirror_x: bool):
+def finished_centerline(raw_pts: list[Vertex], cfg_raw: dict, *, mirror_x: bool,
+                        widths: list | None = None):
     """The exact centerline the road is swept over: corner-rounded, mirrored to the AC frame, and with the
     hand-authored ``road_profile`` dip (the Sand Creek corkscrew) baked into Y.
 
@@ -357,6 +368,113 @@ def finished_centerline(raw_pts: list[Vertex], cfg_raw: dict, *, mirror_x: bool)
             cst.append(cst[-1] + math.hypot(centerline[i][0] - centerline[i - 1][0],
                                             centerline[i][2] - centerline[i - 1][2]))
         centerline = [(x, y - dip_of(cst[i]), z) for i, (x, y, z) in enumerate(centerline)]
+    # Lives HERE (not in build()) so build_mesh AND build_env sweep/dress the SAME filleted
+    # road — applied only in build_mesh, the scenery anchored to the old V and a warning sign
+    # stood mid-lane where the arc now sweeps pavement (obstruction at 24179-84).
+    if widths is None:
+        widths = [9.0] * len(centerline)
+    # JUNCTION FILLET (the real-world fix for stitched Y-junctions): where the route reverses
+    # > 120 deg at a near-point (the US-6 ramp -> 19th St apex: two nodes 4 m apart), a real
+    # driver sweeps ONE ARC through the junction mouth. Replace ±16 m around the V with a
+    # circular fillet tangent to both legs (r ~ 12 m) — the arc lives inside the real paved
+    # mouth, so the geometry is what exists, not an invention.
+    _stf = [0.0]
+    for _i in range(1, len(centerline)):
+        _stf.append(_stf[-1] + math.hypot(centerline[_i][0] - centerline[_i - 1][0],
+                                          centerline[_i][2] - centerline[_i - 1][2]))
+
+    def _hdf(i):
+        a, b = max(0, i - 2), min(len(centerline) - 1, i + 2)
+        return math.atan2(centerline[b][2] - centerline[a][2], centerline[b][0] - centerline[a][0])
+
+    _nfill = 0
+    _fillet_zones: list[tuple[float, float, float, float]] = []  # (x, z, y, radius) — paved junction mouths
+    _i = 4
+    while _i < len(centerline) - 4:
+        _j0 = _i
+        while _j0 > 0 and _stf[_i] - _stf[_j0] < 8.0:
+            _j0 -= 1
+        _j1 = _i
+        while _j1 < len(centerline) - 1 and _stf[_j1] - _stf[_i] < 8.0:
+            _j1 += 1
+        _dv = abs((math.degrees(_hdf(_j1) - _hdf(_j0)) + 180.0) % 360.0 - 180.0)
+        if _dv > 120.0:
+            # TRUE CIRCULAR FILLET. A bezier with its control at the apex has min radius
+            # ~ T*sin^2(g/2)/cos(g/2) — 0.5 m for a 160 deg V — and the 10-23 m ribbon
+            # self-overlaps through it (grass rings over the lane, steps mid-pavement, a
+            # phantom bridge in the junction). A real driver's arc must FIT the real
+            # pavement: R >= ~0.6*width + 3, and the tangent length follows from the
+            # deflection: L = R / tan(gamma/2), gamma = angle between the leg chords.
+            _apx = centerline[_i]
+            _wloc = max(widths[max(0, _i - 10):_i + 10] or [9.0])
+            _Rt = max(10.0, 0.6 * _wloc + 3.0)
+            _need = 16.0
+            _a0 = _i
+            while _a0 > 0 and _stf[_i] - _stf[_a0] < 64.0:
+                _a0 -= 1
+            _a1 = _i
+            while _a1 < len(centerline) - 1 and _stf[_a1] - _stf[_i] < 64.0:
+                _a1 += 1
+            _P0, _P1 = centerline[_a0], centerline[_a1]
+            _v0 = (_P0[0] - _apx[0], _P0[2] - _apx[2])
+            _v1 = (_P1[0] - _apx[0], _P1[2] - _apx[2])
+            _L0 = math.hypot(*_v0); _L1 = math.hypot(*_v1)
+            if _L0 < 1e-6 or _L1 < 1e-6:
+                _i += 1
+                continue
+            _u0 = (_v0[0] / _L0, _v0[1] / _L0); _u1 = (_v1[0] / _L1, _v1[1] / _L1)
+            _cosg = max(-1.0, min(1.0, _u0[0] * _u1[0] + _u0[1] * _u1[1]))
+            _g = math.acos(_cosg)                       # angle at the apex between leg chords
+            if _g < math.radians(2.0) or _g > math.radians(120.0):
+                _i = _a1 + 6
+                continue
+            _tg = math.tan(_g / 2.0)
+            _L = min(_L0, _L1, max(16.0, _Rt / max(1e-6, _tg)))
+            _R = _L * _tg                                # achievable radius at this tangent length
+            _Q0 = (_apx[0] + _u0[0] * _L, _apx[2] + _u0[1] * _L)
+            _Q1 = (_apx[0] + _u1[0] * _L, _apx[2] + _u1[1] * _L)
+            _bx, _bz = _u0[0] + _u1[0], _u0[1] + _u1[1]
+            _bl = math.hypot(_bx, _bz)
+            if _bl < 1e-9:
+                _i = _a1 + 6
+                continue
+            _O = (_apx[0] + _bx / _bl * (_R / math.sin(_g / 2.0)),
+                  _apx[2] + _bz / _bl * (_R / math.sin(_g / 2.0)))
+            _th0 = math.atan2(_Q0[1] - _O[1], _Q0[0] - _O[0])
+            _th1 = math.atan2(_Q1[1] - _O[1], _Q1[0] - _O[0])
+            _dth = (_th1 - _th0 + math.pi) % (2 * math.pi) - math.pi
+            _arc = abs(_dth) * _R
+            # composite path P0 -> Q0 (chord) -> arc -> Q1 -> P1, indices spread by even arc length
+            _lenA = _L0 - _L; _lenC = _L1 - _L
+            _tot = _lenA + _arc + _lenC
+            _npt = _a1 - _a0
+            for _k in range(_a0 + 1, _a1):
+                _d = _tot * (_k - _a0) / _npt
+                _f = _d / max(1e-9, _tot)
+                _by = _P0[1] * (1.0 - _f) + _P1[1] * _f
+                if _d <= _lenA:
+                    _t = _d / max(1e-9, _lenA)
+                    centerline[_k] = (_P0[0] + (_Q0[0] - _P0[0]) * _t, _by,
+                                      _P0[2] + (_Q0[1] - _P0[2]) * _t)
+                elif _d <= _lenA + _arc:
+                    _t = (_d - _lenA) / max(1e-9, _arc)
+                    _th = _th0 + _dth * _t
+                    centerline[_k] = (_O[0] + _R * math.cos(_th), _by, _O[1] + _R * math.sin(_th))
+                else:
+                    _t = (_d - _lenA - _arc) / max(1e-9, _lenC)
+                    centerline[_k] = (_Q1[0] + (_P1[0] - _Q1[0]) * _t, _by,
+                                      _Q1[1] + (_P1[2] - _Q1[1]) * _t)
+                # the ribbon can't be wider than the arc allows: inner edge must keep R > 1.5 m
+                widths[_k] = min(widths[_k], max(9.0, 2.0 * (_R - 1.5)))
+            _fillet_zones.append((_apx[0], _apx[2], _apx[1], _L + 12.0))
+            _nfill += 1
+            _i = _a1 + 6
+            continue
+        _i += 1
+    if _nfill:
+        print(f"  [junction fillet] {_nfill} stitched V-junction(s) swept as real turning arcs "
+              f"(R {[round(z[3], 1) for z in _fillet_zones]} m zones)")
+    finished_centerline.last_fillet_zones = _fillet_zones
     return centerline, dip_of, bank_at, profile_active
 
 
@@ -409,7 +527,9 @@ def build(project_dir: str | Path) -> dict:
     # the centerline Y. Shared with build_env so the scenery anchors to the SAME road. dip_of/bank_at are
     # keyed by lap station (metres from pts[0]); bank rolls every swept cross-section, the dip is baked
     # into the centerline Y so the terrain grade, the grass conform and the dummies all follow it.
-    centerline, dip_of, bank_at, profile_active = finished_centerline(raw_pts, cfg_raw, mirror_x=mirror_x)
+    centerline, dip_of, bank_at, profile_active = finished_centerline(raw_pts, cfg_raw, mirror_x=mirror_x,
+                                                                      widths=widths)
+    _fillet_zones = getattr(finished_centerline, "last_fillet_zones", [])
     # U-TURN PLATEAU: where the route folds back on itself (>110 deg within +-15 m), the swept
     # ribbon self-overlaps, and the fans differ by grade x arc across the fold — a real ~0.5-1 m
     # step INSIDE the widened corner (the 'sends me into the grass' cliff at the bottom of the
@@ -626,7 +746,7 @@ def build(project_dir: str | Path) -> dict:
                 _gst.append(_gst[-1] + math.hypot(raw_pts[i][0] - raw_pts[i - 1][0],
                                                   raw_pts[i][2] - raw_pts[i - 1][2]))
             raw_ground = (_gst, [z - elev0 for z in _ej["z_raw_m"]])
-    bridge_of = _bridge_detector(centerline, natural_grid, raw_ground=raw_ground)
+    bridge_of = _bridge_detector(centerline, natural_grid, raw_ground=raw_ground, paved_zones=_fillet_zones)
     # persist AUTO-detected spans for the kn5 gate: the builder exempts them from fill/pins,
     # so the gate must exempt the same stations (declared-only exemption read auto bridge
     # valleys as 7 m of 'road hover' and wrecked the deck-vs-mountain metric).
@@ -734,8 +854,51 @@ def build(project_dir: str | Path) -> dict:
                     for i in range(len(widths))]
         _sw_widths = [max(a, b) for a, b in zip(_sw_line, widths)]
         # roll the curb wherever the flared roadway exceeds the street's own line — the raised
-        # curb was standing INSIDE the junction mouths ("sidewalks jut into the road")
-        _sw_roll = [w0 > sl + 0.5 for w0, sl in zip(widths, _sw_line)]
+        # curb was standing INSIDE the junction mouths ("sidewalks jut into the road") — AND
+        # wherever pavement exists BEYOND the walk line (Kevin: "sidewalks should never isolate
+        # driving surfaces"): a raised curb between two drivable areas strands an island.
+        from collections import defaultdict as _rdd
+        _rcR: dict = _rdd(list)
+        _rvR = road["vertices"]
+        for _tR in road["tris"]:
+            _xsR = [_rvR[_v][0] for _v in _tR]; _zsR = [_rvR[_v][2] for _v in _tR]
+            for _ciR in range(int(min(_xsR) // 4.0), int(max(_xsR) // 4.0) + 1):
+                for _cjR in range(int(min(_zsR) // 4.0), int(max(_zsR) // 4.0) + 1):
+                    _rcR[(_ciR, _cjR)].append(_tR)
+
+        def _paved_at(px, pz, py):
+            for _t in _rcR.get((int(px // 4.0), int(pz // 4.0)), ()):
+                _a, _b, _c = _rvR[_t[0]], _rvR[_t[1]], _rvR[_t[2]]
+                _d = (_b[2] - _c[2]) * (_a[0] - _c[0]) + (_c[0] - _b[0]) * (_a[2] - _c[2])
+                if abs(_d) < 1e-12:
+                    continue
+                _w0 = ((_b[2] - _c[2]) * (px - _c[0]) + (_c[0] - _b[0]) * (pz - _c[2])) / _d
+                _w1 = ((_c[2] - _a[2]) * (px - _c[0]) + (_a[0] - _c[0]) * (pz - _c[2])) / _d
+                _w2 = 1.0 - _w0 - _w1
+                if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
+                    _yy = _w0 * _a[1] + _w1 * _b[1] + _w2 * _c[1]
+                    if abs(_yy - py) <= 3.0:
+                        return True
+            return False
+
+        _sw_roll = []
+        for _iR, (w0, sl) in enumerate(zip(widths, _sw_line)):
+            _r = w0 > sl + 0.5
+            if not _r:
+                x, y, z = centerline[_iR]
+                txR = centerline[min(_iR + 1, len(centerline) - 1)][0] - centerline[_iR - 1][0]
+                tzR = centerline[min(_iR + 1, len(centerline) - 1)][2] - centerline[_iR - 1][2]
+                LR = math.hypot(txR, tzR) or 1e-9
+                for _sd in (1.0, -1.0):
+                    nxR, nzR = -tzR / LR * _sd, txR / LR * _sd
+                    # sweep the whole band beyond the walk's back edge — a junction apron can
+                    # start anywhere out there, and one missed probe left a full-height curb
+                    # island at Sand Creek (1502, -287)
+                    if any(_paved_at(x + nxR * (sl / 2.0 + _po), z + nzR * (sl / 2.0 + _po), y)
+                           for _po in (3.0, 4.2, 5.5, 7.0, 8.5, 9.5)):
+                        _r = True
+                        break
+            _sw_roll.append(_r)
         shoulder = ribbon.curb_sidewalk(centerline, _sw_widths, roll_flags=_sw_roll, lift=ROAD_LIFT_M,
                                         grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk, ground=grass_surf,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
@@ -770,6 +933,42 @@ def build(project_dir: str | Path) -> dict:
     # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small
     # +0.1–0.5 m pokes on banked ovals). Clamp the grid just below the draped strips (tiny 5 cm clearance,
     # short reach) so no grass triangle pokes up through them, without re-opening a visible gap.
+    # CHICANE CURB JUT (Kevin, Sand Creek): at S-bends the road ribbon fans wider than the
+    # sidewalk's own line and the raised curb pokes up through the pavement. Any KERB/sidewalk
+    # vert standing over the ROAD footprint snaps just under the deck — the walk dips beneath
+    # the pavement instead of standing in it.
+    if edge_group.startswith("1KERB"):
+        _njut = 0
+        from collections import defaultdict as _jdd
+        _rcJ: dict = _jdd(list)
+        _rvJ = road["vertices"]
+        for _tJ in road["tris"]:
+            _xsJ = [_rvJ[_v][0] for _v in _tJ]; _zsJ = [_rvJ[_v][2] for _v in _tJ]
+            for _ciJ in range(int(min(_xsJ) // 4.0), int(max(_xsJ) // 4.0) + 1):
+                for _cjJ in range(int(min(_zsJ) // 4.0), int(max(_zsJ) // 4.0) + 1):
+                    _rcJ[(_ciJ, _cjJ)].append(_tJ)
+        _shv = shoulder["vertices"]
+        for _iJ in range(len(_shv)):
+            _jx, _jy, _jz = _shv[_iJ]
+            _rsurf = None
+            for _t in _rcJ.get((int(_jx // 4.0), int(_jz // 4.0)), ()):
+                _a, _b, _c = _rvJ[_t[0]], _rvJ[_t[1]], _rvJ[_t[2]]
+                _d = (_b[2] - _c[2]) * (_a[0] - _c[0]) + (_c[0] - _b[0]) * (_a[2] - _c[2])
+                if abs(_d) < 1e-12:
+                    continue
+                _w0 = ((_b[2] - _c[2]) * (_jx - _c[0]) + (_c[0] - _b[0]) * (_jz - _c[2])) / _d
+                _w1 = ((_c[2] - _a[2]) * (_jx - _c[0]) + (_a[0] - _c[0]) * (_jz - _c[2])) / _d
+                _w2 = 1.0 - _w0 - _w1
+                if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
+                    _yy = _w0 * _a[1] + _w1 * _b[1] + _w2 * _c[1]
+                    if abs(_yy - _jy) <= 3.0 and (_rsurf is None or _yy < _rsurf):
+                        _rsurf = _yy
+            if _rsurf is not None and _jy > _rsurf - 0.02:
+                _shv[_iJ] = (_jx, _rsurf - 0.02, _jz)
+                _njut += 1
+        if _njut:
+            print(f"  [sidewalk] {_njut} curb verts snapped under fanned pavement (chicane juts)")
+
     # one-sheet junctions: legs, runoff, shoulders and kerbs all snap to the flat-zone plane
     _flatten_pavement(road, 0.012)
     _flatten_pavement(runoff, 0.010)
@@ -1446,67 +1645,138 @@ def build(project_dir: str | Path) -> dict:
         import bisect
         # "I really want fences, just regular fences in most places": right-of-way runs fill the
         # stretches between warning runs — 140 m of fence every 260 m, alternating sides.
+        # CONTINUOUS fencing (Kevin: "right next to each other. No gaps"): both sides, the
+        # whole lap — the strip builder itself breaks only at pavement, bridges and steep
+        # ground, which is where real fences break too. Warning-run fences overlay at 4.2 m
+        # (closer in); the ROW line runs at 8 m continuously.
         _lap_end = _stb[-1]
-        _busy = [( _stb[_sp["start_idx"]] - 25.0, _stb[min(_sp["end_idx"], len(_stb) - 1)] + 25.0)
-                 for _sp in (_keep_spots + _fence_spots)]
-        _s0f = 60.0
-        _fi = 0
-        while _s0f + 140.0 < _lap_end:
-            _s1f = _s0f + 140.0
-            if not any(a < _s1f and _s0f < b for a, b in _busy):    # never double up with warning runs
-                _i0f = bisect.bisect_left(_stb, _s0f)
-                _fence_spots.append({"start_idx": _i0f,
-                                     "end_idx": bisect.bisect_left(_stb, _s1f),
-                                     "side": 1 if _fi % 2 == 0 else -1, "auto": True})
-            _s0f += 260.0
-            _fi += 1
+        for _sideA in (1, -1):
+            _fence_spots.append({"start_idx": 1, "end_idx": len(_stb) - 2,
+                                 "side": _sideA, "auto": True})
     fence_wood = {"vertices": [], "uvs": [], "tris": []}
+    if road["tris"]:  # pavement test shared by fence strips + barrier placement
+        from collections import defaultdict as _fdd2
+        _rcF: dict = _fdd2(list)
+        _rvF = road["vertices"]
+        for _tF in road["tris"]:
+            _xsF = [_rvF[_v][0] for _v in _tF]; _zsF = [_rvF[_v][2] for _v in _tF]
+            for _ciF in range(int(min(_xsF) // 4.0), int(max(_xsF) // 4.0) + 1):
+                for _cjF in range(int(min(_zsF) // 4.0), int(max(_zsF) // 4.0) + 1):
+                    _rcF[(_ciF, _cjF)].append(_tF)
+
+        def _on_pavement_f(px, pz, py):
+            for _t in _rcF.get((int(px // 4.0), int(pz // 4.0)), ()):
+                _a, _b, _c = _rvF[_t[0]], _rvF[_t[1]], _rvF[_t[2]]
+                _d = (_b[2] - _c[2]) * (_a[0] - _c[0]) + (_c[0] - _b[0]) * (_a[2] - _c[2])
+                if abs(_d) < 1e-12:
+                    continue
+                _w0 = ((_b[2] - _c[2]) * (px - _c[0]) + (_c[0] - _b[0]) * (pz - _c[2])) / _d
+                _w1 = ((_c[2] - _a[2]) * (px - _c[0]) + (_a[0] - _c[0]) * (pz - _c[2])) / _d
+                _w2 = 1.0 - _w0 - _w1
+                if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
+                    _yy = _w0 * _a[1] + _w1 * _b[1] + _w2 * _c[1]
+                    if abs(_yy - py) <= 3.0:
+                        return True
+            return False
     if _fence_spots:
-        from scripts.environment import props as _props_f
-        _wf_path = Path(__file__).resolve().parents[2] / "assets" / "models" / "wood_fence_panel.obj"
-        if _wf_path.exists():
-            _wf_mod = _props_f.load_module(_wf_path)
-            _ranges = [{"start_m": _stb[_sp["start_idx"]], "end_m": _stb[min(_sp["end_idx"], len(_stb) - 1)],
-                        "side": int(_sp["side"]), "offset_m": 4.2} for _sp in _fence_spots]
-            # max_dy=3.5: a fence rides near its own road grade — a bank/creek drop under a
-            # module means bridge territory, skip it (one panel shipped floating +1.62 m).
-            def _on_pavement_f(px, pz, py):
-                for _t in _rc7.get((int(px // 4.0), int(pz // 4.0)), ()):
-                    _a, _b, _c = _rv7[_t[0]], _rv7[_t[1]], _rv7[_t[2]]
-                    _d = (_b[2] - _c[2]) * (_a[0] - _c[0]) + (_c[0] - _b[0]) * (_a[2] - _c[2])
-                    if abs(_d) < 1e-12:
-                        continue
-                    _w0 = ((_b[2] - _c[2]) * (px - _c[0]) + (_c[0] - _b[0]) * (pz - _c[2])) / _d
-                    _w1 = ((_c[2] - _a[2]) * (px - _c[0]) + (_a[0] - _c[0]) * (pz - _c[2])) / _d
-                    _w2 = 1.0 - _w0 - _w1
-                    if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
-                        _yy = _w0 * _a[1] + _w1 * _b[1] + _w2 * _c[1]
-                        if abs(_yy - py) <= 3.0:
-                            return True
-                return False
-            fence_wood = _props_f.instance_line(centerline, _wf_mod, ranges=_ranges, widths_m=widths,
-                                                ground=lambda x, z: _grid_trisurf(grid_xyz, x, z),
-                                                module_len=2.02, max_dy=3.5, reject=_on_pavement_f)
-            # EXACT post-filter: probe points miss pavement slivers clipping a panel corner
-            # (one panel = 14 audit verts, three probe schemes missed it). Test the ACTUAL
-            # stamped verts and drop whole panels that touch pavement.
-            _mvn = len(_wf_mod["vertices"])
-            if _mvn and fence_wood["vertices"]:
-                _keepV, _keepU, _keepT = [], [], []
-                _tpm = len(_wf_mod["tris"]) * 2      # double-sided stamping doubles tris
-                for _mi in range(len(fence_wood["vertices"]) // _mvn):
-                    _vs9 = fence_wood["vertices"][_mi * _mvn:(_mi + 1) * _mvn]
-                    if any(_on_pavement_f(vx9, vz9, vy9) for vx9, vy9, vz9 in _vs9):
-                        continue
-                    _b9 = len(_keepV)
-                    _keepV.extend(_vs9)
-                    _keepU.extend(fence_wood["uvs"][_mi * _mvn:(_mi + 1) * _mvn])
-                    for a9, b9, c9 in fence_wood["tris"][_mi * _tpm:(_mi + 1) * _tpm]:
-                        _keepT.append((a9 - _mi * _mvn + _b9, b9 - _mi * _mvn + _b9, c9 - _mi * _mvn + _b9))
-                _dropped9 = len(fence_wood["vertices"]) // _mvn - len(_keepV) // _mvn
-                fence_wood = {"vertices": _keepV, "uvs": _keepU, "tris": _keepT}
-                if _dropped9:
-                    print(f"  [fences] dropped {_dropped9} panels touching pavement (exact vert test)")
+        # CHAIN-LINK STRIPS (Kevin: "use chain link fences, not these wood ones"): a continuous
+        # double-sided alpha-cutout run per range — no panel gaps, no piles, no axis games.
+        # Same guards as before: span-max offsets, footprint-min seating, 3.5 m layer window,
+        # exact pavement rejection (a segment with either end over pavement breaks the strip).
+        _FH = 1.8
+        # SAMPLING-CONSISTENCY LAW: seat fence bottoms on the RENDERED grass tris, not the coarse
+        # grid — grid_xyz chords over a gully ~4 m above the fine spliced surface that ships
+        # (audit E: posts floating +3.7 m at (-1388,-3140) while the grass dips beneath them).
+        from collections import defaultdict as _fgd
+        _fgh: dict = _fgd(list)
+        _fgv = grass["vertices"]
+        for _tG in grass["tris"]:
+            _xsG = [_fgv[_v][0] for _v in _tG]; _zsG = [_fgv[_v][2] for _v in _tG]
+            for _ciG in range(int(min(_xsG) // 4.0), int(max(_xsG) // 4.0) + 1):
+                for _cjG in range(int(min(_zsG) // 4.0), int(max(_zsG) // 4.0) + 1):
+                    _fgh[(_ciG, _cjG)].append(_tG)
+
+        def _fence_gy(px, pz, yref):
+            best = None
+            for _tG in _fgh.get((int(px // 4.0), int(pz // 4.0)), ()):
+                _aG, _bG, _cG = _fgv[_tG[0]], _fgv[_tG[1]], _fgv[_tG[2]]
+                # GROUND means WALKABLE (same law as the barrier seat): a near-vertical
+                # mountainside face barycentric-answers any height in its 20 m span, and the
+                # closest-to-yref pick then seats the post ON the wall (+3.7 m audit floats).
+                _e1 = (_bG[0] - _aG[0], _bG[1] - _aG[1], _bG[2] - _aG[2])
+                _e2 = (_cG[0] - _aG[0], _cG[1] - _aG[1], _cG[2] - _aG[2])
+                _nxG = _e1[1] * _e2[2] - _e1[2] * _e2[1]
+                _nyG = _e1[2] * _e2[0] - _e1[0] * _e2[2]
+                _nzG = _e1[0] * _e2[1] - _e1[1] * _e2[0]
+                _nlG = math.sqrt(_nxG * _nxG + _nyG * _nyG + _nzG * _nzG) or 1e-12
+                if abs(_nyG) / _nlG < 0.5:
+                    continue
+                _dG = (_bG[2] - _cG[2]) * (_aG[0] - _cG[0]) + (_cG[0] - _bG[0]) * (_aG[2] - _cG[2])
+                if abs(_dG) < 1e-12:
+                    continue
+                _w0 = ((_bG[2] - _cG[2]) * (px - _cG[0]) + (_cG[0] - _bG[0]) * (pz - _cG[2])) / _dG
+                _w1 = ((_cG[2] - _aG[2]) * (px - _cG[0]) + (_aG[0] - _cG[0]) * (pz - _cG[2])) / _dG
+                _w2 = 1.0 - _w0 - _w1
+                if _w0 >= -1e-6 and _w1 >= -1e-6 and _w2 >= -1e-6:
+                    _yy = _w0 * _aG[1] + _w1 * _bG[1] + _w2 * _cG[1]
+                    if abs(_yy - yref) <= 8.0 and (best is None or abs(_yy - yref) < abs(best - yref)):
+                        best = _yy
+            return best
+
+        for _sp in _fence_spots:
+            _i0s = max(1, _sp["start_idx"])
+            _i1s = min(_sp.get("end_idx", _i0s + 8), len(centerline) - 2)
+            _sideF = float(_sp.get("side", 1))
+            _offF = 4.2 if not _sp.get("auto") else 8.0
+            _prev = None
+            _arcF = 0.0
+            for _iF in range(_i0s, _i1s):
+                _arcF += math.hypot(centerline[_iF][0] - centerline[_iF - 1][0],
+                                    centerline[_iF][2] - centerline[_iF - 1][2])
+                if _prev is not None and _arcF - _prev[3] < 3.0:
+                    continue
+                x, y, z = centerline[_iF]
+                tx = centerline[min(_iF + 1, len(centerline) - 1)][0] - centerline[_iF - 1][0]
+                tz = centerline[min(_iF + 1, len(centerline) - 1)][2] - centerline[_iF - 1][2]
+                L = math.hypot(tx, tz) or 1e-9
+                nx, nz = -tz / L * _sideF, tx / L * _sideF
+                _wspanF = max(widths[max(0, _iF - 3):min(len(widths), _iF + 4)])
+                _fx, _fz = x + nx * (_wspanF / 2.0 + _offF), z + nz * (_wspanF / 2.0 + _offF)
+                _gyF = _fence_gy(_fx, _fz, y)
+                _bad = (_gyF is None or abs(_gyF - y) > 6.0 or _on_pavement_f(_fx, _fz, y)
+                        or bridge_of(_stb[min(_iF, len(_stb) - 1)]))
+                if _bad:
+                    _prev = None
+                    continue
+                if _prev is not None:
+                    _px0, _py0, _pz0, _pa0 = _prev
+                    # bottom edge FOLLOWS the ground: a straight 3 m chord bridges gully dips
+                    # (audit E caught 6 columns floating up to +3.4 m). Adaptive: flat spans stay
+                    # one quad; a deviating midpoint splits the segment until chords hug terrain.
+                    _my = _fence_gy((_px0 + _fx) / 2.0, (_pz0 + _fz) / 2.0, (_py0 + _gyF) / 2.0)
+                    _dev = abs(_my - (_py0 + _gyF) / 2.0) if _my is not None else 0.0
+                    _nsub = 1 if _dev <= 0.3 else (2 if _dev <= 0.8 else 4)
+                    _seg = _arcF - _pa0
+                    _lx, _ly, _lz, _la = _px0, _py0, _pz0, _pa0
+                    for _ks in range(1, _nsub + 1):
+                        _t = _ks / _nsub
+                        _sx = _px0 + (_fx - _px0) * _t
+                        _sz = _pz0 + (_fz - _pz0) * _t
+                        _cy = _py0 + (_gyF - _py0) * _t
+                        _sy = _fence_gy(_sx, _sz, _cy) if _ks < _nsub else _gyF
+                        if _sy is None or abs(_sy - _cy) > 6.0:   # layer window vs own chord
+                            _sy = _cy
+                        _sa = _pa0 + _seg * _t
+                        _b = len(fence_wood["vertices"])
+                        for vx, vy, vz in ((_lx, _ly, _lz), (_sx, _sy, _sz),
+                                           (_sx, _sy + _FH, _sz), (_lx, _ly + _FH, _lz)):
+                            fence_wood["vertices"].append((vx, vy, vz))
+                        _u0, _u1 = _la / 3.0, _sa / 3.0
+                        fence_wood["uvs"].extend([(_u0, 0), (_u1, 0), (_u1, 1), (_u0, 1)])
+                        fence_wood["tris"].extend([(_b, _b + 1, _b + 2), (_b, _b + 2, _b + 3),
+                                                   (_b, _b + 2, _b + 1), (_b, _b + 3, _b + 2)])
+                        _lx, _ly, _lz, _la = _sx, _sy, _sz, _sa
+                _prev = (_fx, _gyF, _fz, _arcF)
     if cfg_raw.get("props", {}).get("concrete_barriers"):
         # Kevin's 4 m concrete barrier modules replace the procedural swept jersey — real geometry,
         # instanced along the SAME warning-barrier runs, shipped physical as 1WALL_* (collidable).
@@ -1807,7 +2077,7 @@ def build(project_dir: str | Path) -> dict:
               ("MARKINGS", "kerb", marks),
               ("MARKINGS_crosswalk", "kerb", xwalk)]
     if fence_wood["tris"]:
-        groups.extend(split_mesh_under_cap("1WALL_WOODF_warn", "kerb", fence_wood))
+        groups.extend(split_mesh_under_cap("1WALL_CHAINL_warn", "grass", fence_wood))
     if para_mesh["tris"]:
         groups.extend(split_mesh_under_cap("1WALL_PARA_stone", "kerb", para_mesh))
     if wallskin["tris"]:

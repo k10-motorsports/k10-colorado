@@ -530,7 +530,8 @@ def build(project_dir: str | Path) -> dict:
     # Run the SAME centerline pipeline as the shipped road (corner-round + mirror + bake the corkscrew
     # dip). Without this the scenery anchored to the raw loop — poles/signs/bridge floated ~2 m over the
     # dipped road through the corkscrew. dip_of feeds the terrain bowl below.
-    loop, dip_of, _bank_at, profile_active = finished_centerline(loop, cfg.raw, mirror_x=mirror_x)
+    loop, dip_of, _bank_at, profile_active = finished_centerline(loop, cfg.raw, mirror_x=mirror_x,
+                                                                 widths=widths)
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
@@ -1035,9 +1036,14 @@ def build(project_dir: str | Path) -> dict:
         for _q2 in range(1, len(loop)):
             _sst0.append(_sst0[-1] + math.hypot(loop[_q2][0] - loop[_q2 - 1][0],
                                                 loop[_q2][2] - loop[_q2 - 1][2]))
+        _placed_signs = []
         for _loopD, _widthsD, _spotsD in ((loop, widths, _spots),
                                           (loop[::-1], widths[::-1], _spots_r)):
           for _sp in _spotsD:
+            # TRIAGE (Kevin: "too many warning signs"): only corners that earn one (>= 60 deg),
+            # and never two signs within 150 m of each other in the same direction.
+            if abs(_sp.get("turn_deg", 0)) < 60:
+                continue
             # TRACK convention, not road convention (Kevin): the warning stands WHERE THE DANGER
             # IS — at the corner apex on the OUTSIDE of the turn (the barrier line), the arrow
             # facing the approaching driver. Like chevron boards on a race circuit.
@@ -1050,10 +1056,15 @@ def build(project_dir: str | Path) -> dict:
             tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
             L2 = math.hypot(tx2, tz2) or 1e-9
             tx2, tz2 = tx2 / L2, tz2 / L2
-            _outside = float(_sp["side"])           # the side the barriers guard
+            _outside = -float(_sp["side"])          # FLIPPED (Kevin: "wrong side usually") —
+                                                    # the mirror inverts the outward convention
             nx2, nz2 = -tz2 * _outside, tx2 * _outside
             _soff = max(_widthsD[i2] / 2 + 2.8, 6.8)   # clear of the 6.3 m obstruction corridor
             sx3, sz3 = x2 + nx2 * _soff, z2 + nz2 * _soff
+            if any((sx3 - qx) ** 2 + (sz3 - qz) ** 2 < 150.0 ** 2 and _dD == _dirD
+                   for qx, qz, _dD in _placed_signs for _dirD in [id(_spotsD)]):
+                continue
+            _placed_signs.append((sx3, sz3, id(_spotsD)))
             if not on_surface(sx3, sz3):    # verge furniture: tight on-pavement test, not the 4 m foliage margin
                 # MUTCD atlas cell by direction + severity: 0/1 curve L/R, 2/3 hairpin L/R
                 _tdeg = float(_sp.get("turn_deg", 60.0))
