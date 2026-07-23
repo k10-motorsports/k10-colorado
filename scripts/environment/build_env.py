@@ -753,6 +753,25 @@ def build(project_dir: str | Path) -> dict:
                       ("POPLARBARK", props_mod.load_module(_models3 / "poplar_trunk.obj"))]
         for _nm3, _ in _mods3:
             forest3d_meshes[_nm3] = {"vertices": [], "uvs": [], "tris": []}
+        # every-leg clearance hash: a tree placed off leg A can overhang leg B's lane where
+        # legs run close (25 obstructed stations at the switchback stacks). Reject positions
+        # whose canopy reaches ANY centerline within its own height layer.
+        _lh3 = {}
+        for _q3, _p3 in enumerate(loop):
+            _lh3.setdefault((int(_p3[0] // 24.0), int(_p3[2] // 24.0)), []).append(_q3)
+
+        def _too_close3(px, pz, py, reach):
+            ci, cj = int(px // 24.0), int(pz // 24.0)
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for _q3 in _lh3.get((ci + di, cj + dj), ()):
+                        lp = loop[_q3]
+                        if abs(lp[1] - py) > 25.0:
+                            continue
+                        if math.hypot(px - lp[0], pz - lp[2]) < widths[_q3] / 2 + reach:
+                            return True
+            return False
+
         _sp3 = float(f3.get("spacing_m", 26.0))
         _o0 = float(f3.get("off_min_m", 7.0)); _o1 = float(f3.get("off_max_m", 26.0))
         _cap3 = int(f3.get("cap", 700))
@@ -770,7 +789,11 @@ def build(project_dir: str | Path) -> dict:
             tl = math.hypot(tx, tz) or 1e-6
             nx, nz = -tz / tl, tx / tl
             side = 1.0 if (i // 7) % 2 == 0 else -1.0    # alternating, deterministic
-            off = widths[i] / 2 + _o0 + _f3r.random() * (_o1 - _o0)
+            sc3 = _s0 + _f3r.random() * (_s1 - _s0)
+            # canopy-aware clearance: a x4-scaled pine's canopy is ~9 m wide — the trunk must
+            # stand canopy_half further out or branches overhang the lane (drive obstructions
+            # at the flared corners). 2.2 = the module's canopy half-width at scale 1.
+            off = widths[i] / 2 + _o0 + 2.2 * sc3 + _f3r.random() * (_o1 - _o0)
             rx, rz = x + nx * off * side, z + nz * off * side
             if on_road(rx, rz):
                 continue
@@ -778,11 +801,12 @@ def build(project_dir: str | Path) -> dict:
             if gy3 is None:
                 continue
             gy3 += 0.15                                 # seat_y sinks 0.25 for billboards; trees want less
-            sc3 = _s0 + _f3r.random() * (_s1 - _s0)
             ya3 = _f3r.random() * math.pi * 2
             _cy, _sy = math.cos(ya3), math.sin(ya3)
             if abs(y - gy3) > 25.0:
                 continue                                 # layer guard: never a tree from another leg
+            if _too_close3(rx, rz, gy3, 2.2 * sc3 + 1.2):
+                continue                                 # canopy would reach SOME leg's lane
             for _nm3, _mod3 in _mods3:
                 M = forest3d_meshes[_nm3]
                 base3 = len(M["vertices"])

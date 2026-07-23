@@ -410,6 +410,46 @@ def build(project_dir: str | Path) -> dict:
     # keyed by lap station (metres from pts[0]); bank rolls every swept cross-section, the dip is baked
     # into the centerline Y so the terrain grade, the grass conform and the dummies all follow it.
     centerline, dip_of, bank_at, profile_active = finished_centerline(raw_pts, cfg_raw, mirror_x=mirror_x)
+    # U-TURN PLATEAU: where the route folds back on itself (>110 deg within +-15 m), the swept
+    # ribbon self-overlaps, and the fans differ by grade x arc across the fold — a real ~0.5-1 m
+    # step INSIDE the widened corner (the 'sends me into the grass' cliff at the bottom of the
+    # hill). Real U-turn bowls are near-flat: plateau the profile over +-40 m with a smoothstep
+    # blend into the approach grades.
+    _stp = [0.0]
+    for _i in range(1, len(centerline)):
+        _stp.append(_stp[-1] + math.hypot(centerline[_i][0] - centerline[_i - 1][0],
+                                          centerline[_i][2] - centerline[_i - 1][2]))
+
+    def _hdp(i):
+        a, b = max(0, i - 3), min(len(centerline) - 1, i + 3)
+        return math.atan2(centerline[b][2] - centerline[a][2], centerline[b][0] - centerline[a][0])
+
+    _apexes = []
+    _i = 0
+    while _i < len(centerline):
+        _j0 = _i
+        while _j0 > 0 and _stp[_i] - _stp[_j0] < 15.0:
+            _j0 -= 1
+        _j1 = _i
+        while _j1 < len(centerline) - 1 and _stp[_j1] - _stp[_i] < 15.0:
+            _j1 += 1
+        _dp = abs((math.degrees(_hdp(_j1) - _hdp(_j0)) + 180.0) % 360.0 - 180.0)
+        if _dp > 110.0:
+            _apexes.append(_i)
+            _i = _j1 + 10
+            continue
+        _i += 1
+    for _ax in _apexes:
+        _ay = centerline[_ax][1]
+        for _i in range(len(centerline)):
+            _d = abs(_stp[_i] - _stp[_ax])
+            if _d < 40.0:
+                _t = _d / 40.0
+                _w = 1.0 - (_t * _t * (3.0 - 2.0 * _t))    # smoothstep: 1 at apex, 0 at 40 m
+                x, y, z = centerline[_i]
+                centerline[_i] = (x, y * (1.0 - _w) + _ay * _w, z)
+    if _apexes:
+        print(f"  [u-turn plateau] {len(_apexes)} fold apex(es) leveled (+-40 m smoothstep)")
     bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
     # MEASURED cross-slope (data/crossfall.json, from lateral 1 m-DEM pairs): real superelevation,
     # dead-banded + capped at 6% so the car never launches. Only when the track has no hand-authored

@@ -114,10 +114,27 @@ one-shotting is a CONFIG exercise, not a code exercise.
   (footprint-exact, steep-tri-aware), kn5 verify (footprint-exact poke), fidelity (weld, double-
   sheet 0, per-class 0% hover, deck-vs-mountain), hash-verified zips, new tag per build.
 
+### Hard-won placement rules (each cost a build cycle — bake into any new pass)
+- **Trees**: clearance is canopy-aware (`off += canopy_half x scale`) and checked against
+  EVERY nearby leg within the height layer, not just the leg that placed the tree
+  (switchback stacks). 3D near-corridor, billboards for mass.
+- **U-turn folds** (>110° within ±15 m): plateau the profile ±40 m (smoothstep) — the swept
+  ribbon self-overlaps there and grade x arc across the fold is a REAL mid-corner step
+  (~0.5-1 m) that gates as severe steps and eats cars.
+- **Fence/rail audits**: a rail member between posts has no base verts in its own audit
+  column — checks need the grounded-post-nearby (arm exclusion) rule or healthy fences
+  read as floating walls.
+- **Panel seating**: short line-instanced modules seat on the footprint MIN (center+ends),
+  never the center point (banks fly the downhill end); long modules (pylons) keep center.
+- **Sidewalks follow the street's line**: rolling-median width (~30 m), max'd with the real
+  width — never trace flare jitter (zigzag walks).
+
 ### Asset conversion pattern (Dropbox drops → engine)
 Headless Blender 4.2: import (.blend/.fbx/.glb) → drop render-scene planes (huge flat meshes) →
 join → separate by MATERIAL → decimate to instancer weight (trees ≤2.5k, lamps ≤2.5k, props
-≤1k) → selected-only OBJ export → PoT textures (bake opacity into diffuse alpha; fold emissive
+≤1k) → **delete loose verts** (Decimate leaves the collapsed originals as points — one pine
+shipped 91k orphan verts x 649 instances) → selected-only OBJ export → **verify the FILE's
+`grep -c '^v '` count before staging** → PoT textures (bake opacity into diffuse alpha; fold emissive
 in) → assets/models + assets/textures + a pbr TEXTURES entry. Specific prefixes (1WALL_WOODF,
 1WALL_PARA) must precede generic ones (1WALL) — the prefix match is dict-ordered. Maya .mb is
 unusable — ask for FBX/OBJ.

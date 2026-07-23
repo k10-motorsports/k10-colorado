@@ -13,7 +13,7 @@
   "max": 4.08
  },
  "excursion_drops": 292,
- "excursion_far_ledges": 84,
+ "excursion_far_ledges": 87,
  "worst_excursions": [
   [
    2401.8,
@@ -38,6 +38,12 @@
    11.0,
    0.64,
    true
+  ],
+  [
+   5850.7,
+   15.0,
+   0.64,
+   false
   ],
   [
    6302.4,
@@ -80,12 +86,6 @@
    11.5,
    0.55,
    true
-  ],
-  [
-   5850.7,
-   14.5,
-   0.55,
-   false
   ]
  ],
  "worst_gated_excursions": [
