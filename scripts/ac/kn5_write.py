@@ -235,7 +235,16 @@ def build(project_dir: str | Path) -> Path:
         pts = json.loads(clp.read_text()).get("points_xyz_m", [])
         if len(pts) >= 2:
             sx = -1.0 if cfg.get("mirror_x") else 1.0
-            tx, tz = sx * (pts[1][0] - pts[0][0]), pts[1][2] - pts[0][2]
+            mpts = [(sx * q[0], q[2]) for q in pts]
+            # facing = travel direction AT THE START DUMMY (the start now sits on the best
+            # straight, not at pts[0] — deriving from pts[0] would spawn cars sideways).
+            st0 = dummies.get("AC_START_0")
+            i0 = 0
+            if st0:
+                i0 = min(range(len(mpts)),
+                         key=lambda i: (mpts[i][0] - st0[0]) ** 2 + (mpts[i][1] - st0[2]) ** 2)
+            ia, ib = max(0, i0 - 1), min(len(mpts) - 1, i0 + 1)
+            tx, tz = mpts[ib][0] - mpts[ia][0], mpts[ib][1] - mpts[ia][1]
             L = math.hypot(tx, tz) or 1.0
             start_yaw = math.atan2(tx / L, tz / L)
     FACING = ("AC_START", "AC_PIT", "AC_HOTLAP")

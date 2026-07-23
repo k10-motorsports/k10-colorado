@@ -330,6 +330,35 @@ def build(project_dir: str | Path) -> dict:
         print(f"  [widths_from_osm] {len(corners)} hard route corners flared to junction grade "
               f"(sizes {[c['size'] for c in corners]})")
     widths_cl = flare_widths(widths_cl, cl, junctions + corners)
+    # U-TURN FLARE, no identity gate: where the ROUTE FOLDS BACK on itself (>110 deg within
+    # ±15 m) the corner is undrivable at street width no matter whose node it is — Kevin's
+    # bottom-of-the-hill corner is 165 deg at 9 m wide with a fast downhill approach. Mountain
+    # switchbacks stay under this threshold (a 20 m-radius hairpin turns ~86 deg per ±15 m).
+    _lat0u = sum(p[1] for p in cl) / len(cl)
+    _kxu = 111320.0 * math.cos(math.radians(_lat0u)); _kyu = 110540.0
+    _stu = [0.0]
+    for _i in range(1, len(cl)):
+        _stu.append(_stu[-1] + math.hypot((cl[_i][0] - cl[_i - 1][0]) * _kxu,
+                                          (cl[_i][1] - cl[_i - 1][1]) * _kyu))
+
+    def _hdu(i):
+        a, b = max(0, i - 3), min(len(cl) - 1, i + 3)
+        return math.atan2((cl[b][1] - cl[a][1]) * _kyu, (cl[b][0] - cl[a][0]) * _kxu)
+
+    _uturns = 0
+    for _i in range(len(cl)):
+        _j0 = _i
+        while _j0 > 0 and _stu[_i] - _stu[_j0] < 15.0:
+            _j0 -= 1
+        _j1 = _i
+        while _j1 < len(cl) - 1 and _stu[_j1] - _stu[_i] < 15.0:
+            _j1 += 1
+        _du = abs((math.degrees(_hdu(_j1) - _hdu(_j0)) + 180.0) % 360.0 - 180.0)
+        if _du > 110.0 and widths_cl[_i] < 16.0:
+            widths_cl[_i] = 16.0
+            _uturns += 1
+    if _uturns:
+        print(f"  [widths_from_osm] u-turn flare: {_uturns} verts widened to 16 m (route folds >110 deg)")
     # TAPER RATE LIMIT: real lane adds/gores open at ~1:7 or shallower. Map-matched widths step
     # hard when the matched way changes (mainline vs turn pocket vs ramp) — up to 6 m per 3 m
     # vertex on the US-6 corridor — and each step ships as a sawtooth edge / a 1-2 m shoulder

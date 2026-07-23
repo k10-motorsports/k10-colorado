@@ -228,6 +228,28 @@ def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None, flip_y: b
             f'stroke-linejoin="round" stroke-linecap="round"/></svg>')
 
 
+def _draw_track_png(xz, geom, png: Path, *, stroke=(255, 255, 255, 255), width: float = 10,
+                    flip_y: bool = False, multi=None) -> None:
+    """Draw the track line straight to a TRANSPARENT PNG with PIL. qlmanage flattens SVG
+    transparency to opaque white — the shipped map.png was a white square (white line on
+    white: the in-game minimap and the CM outline overlay were both invisible/blocky)."""
+    from PIL import Image, ImageDraw
+    minx, minz, maxz, scale, ox, oz, S = (geom[k] for k in ("minx", "minz", "maxz", "scale", "ox", "oz", "S"))
+    AA = 2
+
+    def px(x, z):
+        py = ((maxz - z) if flip_y else (z - minz)) * scale + oz
+        return ((x - minx) * scale + ox) * AA, py * AA
+
+    img = Image.new("RGBA", (S * AA, S * AA), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(img)
+    for line in (multi if multi is not None else [xz]):
+        pts = [px(x, z) for x, z in line]
+        if len(pts) >= 2:
+            dr.line(pts, fill=stroke, width=max(1, int(width * AA)), joint="curve")
+    img.resize((S, S), Image.LANCZOS).save(png)
+
+
 def _rasterize(svg: str, png: Path, size: int) -> bool:
     """qlmanage SVG→PNG (macOS build host). Falls back to writing the .svg if unavailable."""
     try:
@@ -275,8 +297,8 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     params, geom = _map_params(xz)
     (out / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
     # HUD minimap — white track, transparent, AC convention (consistent with map.ini)
-    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False,
-                          multi=multi), out / "map.png", params["WIDTH"])
+    _draw_track_png(xz, geom, out / "map.png", stroke=(255, 255, 255, 255),
+                    width=params["DRAWING_SIZE"], flip_y=False, multi=multi)
     # preview — OSM street map with the route drawn on it (Kevin), from the widths stage's
     # cached ways (data/osm.ways.json) so pack needs no network. Falls back to the 3D render
     # or the plain outline when no ways cache exists (aerial-traced facilities).
@@ -287,6 +309,10 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
 
     import shutil
     layouts = [lo["id"] for lo in cfg.layouts]
+    # SINGLE-LAYOUT tracks use the suffix-FREE structure: models.ini, ui/ui_track.json, ai/ at
+    # the root. Writing models_<layout>.ini makes AC treat the track as multi-layout and look
+    # for <track>/<layout>/map.png — which doesn't exist, so the in-game minimap NEVER rendered.
+    single = len(layouts) == 1
     for layout in layouts:
         # Per-track spawn: if this layout has its own dummies_<layout>.json + a built spawn kn5, load it
         # as MODEL_1 alongside the shared main kn5, and count pits from THIS layout's dummies.
@@ -296,20 +322,21 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         has_spawn = sp_dummies_path.exists() and spawn_kn5_src.exists()
         layout_dummies = json.loads(sp_dummies_path.read_text(encoding="utf-8")) if sp_dummies_path.exists() else dummies
         layout_pits = sum(1 for k in layout_dummies if k.startswith("AC_PIT_")) or n_pits or 1
-        (out / ("models_%s.ini" % layout)).write_text(
+        (out / ("models.ini" if single else "models_%s.ini" % layout)).write_text(
             models_ini(kn5_name, spawn_kn5 if has_spawn else None), encoding="utf-8")
         if has_spawn:
             shutil.copyfile(spawn_kn5_src, out / spawn_kn5)
-        uid = out / "ui" / layout
+        uid = (out / "ui") if single else (out / "ui" / layout)
         uid.mkdir(parents=True, exist_ok=True)
         (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, layout_pits), indent=2),
                                            encoding="utf-8")
-        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True, multi=multi), uid / "outline.png", params["WIDTH"])
+        _draw_track_png(xz, geom, uid / "outline.png", stroke=(232, 236, 240, 255),
+                        width=3, flip_y=True, multi=multi)
         if preview_img is not None:
             preview_img.save(uid / "preview.png")
         else:
             _rasterize(preview_src, uid / "preview.png", 600)
-        aid = out / "ai" / layout
+        aid = (out / "ai") if single else (out / "ai" / layout)
         aid.mkdir(parents=True, exist_ok=True)
         (aid / "README.txt").write_text(
             "fast_lane.ai is recorded in-game (AC + Content Manager, Windows) — see ac-track-modding.\n",
