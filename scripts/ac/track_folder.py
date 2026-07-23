@@ -115,7 +115,11 @@ def _map_params(xz, size: int = 900, margin: int = 28):
     rx, rz = maxx - minx, maxz - minz
     scale = (size - 2 * margin) / max(rx, rz)
     ox, oz = (size - rx * scale) / 2, (size - rz * scale) / 2  # centering offsets (px)
-    params = {"WIDTH": size, "HEIGHT": size, "SCALE_FACTOR": round(scale, 6),
+    params = {"WIDTH": size, "HEIGHT": size,
+              # AC semantics: pixel = (world + OFFSET) / SCALE_FACTOR -> SCALE is METERS PER
+              # PIXEL (Kunos tracks ship ~5-9). We shipped px/m; every point mapped thousands
+              # of px off-canvas and the minimap showed nothing ("map doesn't work").
+              "SCALE_FACTOR": round(1.0 / scale, 6),
               "X_OFFSET": round(ox / scale - minx, 3), "Z_OFFSET": round(oz / scale - minz, 3),
               "MARGIN": margin, "DRAWING_SIZE": 10}
     geom = {"minx": minx, "minz": minz, "maxz": maxz, "scale": scale, "ox": ox, "oz": oz, "S": size}
@@ -313,6 +317,13 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     # the root. Writing models_<layout>.ini makes AC treat the track as multi-layout and look
     # for <track>/<layout>/map.png — which doesn't exist, so the in-game minimap NEVER rendered.
     single = len(layouts) == 1
+    # clean STALE structure files from previous packs: models.ini beside models_<layout>.ini
+    # makes AC mis-detect the layout structure (and vice versa)
+    if single:
+        for _st in out.glob("models_*.ini"):
+            _st.unlink()
+    else:
+        (out / "models.ini").unlink(missing_ok=True)
     for layout in layouts:
         # Per-track spawn: if this layout has its own dummies_<layout>.json + a built spawn kn5, load it
         # as MODEL_1 alongside the shared main kn5, and count pits from THIS layout's dummies.
@@ -336,7 +347,15 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
             preview_img.save(uid / "preview.png")
         else:
             _rasterize(preview_src, uid / "preview.png", 600)
-        aid = (out / "ai") if single else (out / "ai" / layout)
+        if not single:
+            # Kunos multi-layout: <track>/<layout>/ holds map.png + data/ + ai/ per layout
+            _lroot = out / layout
+            (_lroot / "data").mkdir(parents=True, exist_ok=True)
+            (_lroot / "data" / "surfaces.ini").write_text(surfaces_ini(), encoding="utf-8")
+            (_lroot / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
+            _draw_track_png(xz, geom, _lroot / "map.png", stroke=(255, 255, 255, 255),
+                            width=params["DRAWING_SIZE"], flip_y=False, multi=multi)
+        aid = (out / "ai") if single else (out / layout / "ai")
         aid.mkdir(parents=True, exist_ok=True)
         (aid / "README.txt").write_text(
             "fast_lane.ai is recorded in-game (AC + Content Manager, Windows) — see ac-track-modding.\n",

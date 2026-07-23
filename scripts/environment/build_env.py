@@ -988,7 +988,7 @@ def build(project_dir: str | Path) -> dict:
     if fences_cfg and (_models / "ranch_fence_panel.obj").exists():
         _fmod = props_mod.load_module(_models / "ranch_fence_panel.obj")
         ranch_fences = props_mod.instance_line(loop, _fmod, ranges=fences_cfg, widths_m=widths,
-                                               ground=ground_y, module_len=1.72)
+                                               ground=ground_y, module_len=2.02)
         print(f"  ranch fences: {len(ranch_fences['vertices'])} verts over {len(fences_cfg)} ranges")
     pylons_cfg = scn.get("pylons", [])
     pylon_line = {"vertices": [], "uvs": [], "tris": []}
@@ -1027,15 +1027,33 @@ def build(project_dir: str | Path) -> dict:
             sign_posts2.setdefault("uvs", []).extend([(0.0, 0.0)] * 8)
         from scripts.geometry import kerbs as _kerbs
         _bar, _spots = _kerbs.warning_barriers(loop, widths)
-        for _sp in _spots:
-            i2 = max(1, _sp["start_idx"] - 8)
-            x2, _, z2 = loop[i2]
-            a2, b3 = loop[i2 - 1], loop[min(len(loop) - 1, i2 + 1)]
+        # BOTH DIRECTIONS (Kevin drives the reverse layout too): detect corners on the reversed
+        # lap and place its warnings as well — positions are world-space, so the same placement
+        # code runs on the reversed arrays and everything lands facing the reverse traffic.
+        _bar_r, _spots_r = _kerbs.warning_barriers(loop[::-1], widths[::-1])
+        _sst0 = [0.0]
+        for _q2 in range(1, len(loop)):
+            _sst0.append(_sst0[-1] + math.hypot(loop[_q2][0] - loop[_q2 - 1][0],
+                                                loop[_q2][2] - loop[_q2 - 1][2]))
+        for _loopD, _widthsD, _spotsD in ((loop, widths, _spots),
+                                          (loop[::-1], widths[::-1], _spots_r)):
+          for _sp in _spotsD:
+            # TRACK convention, not road convention (Kevin): the warning stands WHERE THE DANGER
+            # IS — at the corner apex on the OUTSIDE of the turn (the barrier line), the arrow
+            # facing the approaching driver. Like chevron boards on a race circuit.
+            _apx = min(_sp.get("apex_idx", _sp["start_idx"]), len(_loopD) - 2)
+            i2 = max(1, _apx)
+            x2, _, z2 = _loopD[i2]
+            # face along the APPROACH tangent (a few stations before the apex), not the apex's own
+            ia2 = max(1, i2 - 6)
+            a2, b3 = _loopD[ia2 - 1], _loopD[min(len(_loopD) - 1, ia2 + 1)]
             tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
             L2 = math.hypot(tx2, tz2) or 1e-9
             tx2, tz2 = tx2 / L2, tz2 / L2
-            nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
-            sx3, sz3 = x2 + nx2 * (widths[i2] / 2 + 2.2), z2 + nz2 * (widths[i2] / 2 + 2.2)
+            _outside = float(_sp["side"])           # the side the barriers guard
+            nx2, nz2 = -tz2 * _outside, tx2 * _outside
+            _soff = max(_widthsD[i2] / 2 + 2.8, 6.8)   # clear of the 6.3 m obstruction corridor
+            sx3, sz3 = x2 + nx2 * _soff, z2 + nz2 * _soff
             if not on_surface(sx3, sz3):    # verge furniture: tight on-pavement test, not the 4 m foliage margin
                 # MUTCD atlas cell by direction + severity: 0/1 curve L/R, 2/3 hairpin L/R
                 _tdeg = float(_sp.get("turn_deg", 60.0))
@@ -1060,17 +1078,19 @@ def build(project_dir: str | Path) -> dict:
         # Kevin's flashing-light model when it lands (CSP animation then).
         danger_boards = {"vertices": [], "uvs": [], "tris": []}
         _nboards = 0
-        for _sp in _spots:
+        for _loopD, _widthsD, _spotsD in ((loop, widths, _spots),
+                                          (loop[::-1], widths[::-1], _spots_r)):
+          for _sp in _spotsD:
             if abs(_sp.get("turn_deg", 0)) < 90:
                 continue
             i2 = max(1, _sp["start_idx"] - 20)
-            x2, _, z2 = loop[i2]
-            a2, b3 = loop[i2 - 1], loop[min(len(loop) - 1, i2 + 1)]
+            x2, _, z2 = _loopD[i2]
+            a2, b3 = _loopD[i2 - 1], _loopD[min(len(_loopD) - 1, i2 + 1)]
             tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
             L2 = math.hypot(tx2, tz2) or 1e-9
             tx2, tz2 = tx2 / L2, tz2 / L2
             nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
-            bx2, bz2 = x2 + nx2 * (widths[i2] / 2 + 2.6), z2 + nz2 * (widths[i2] / 2 + 2.6)
+            bx2, bz2 = x2 + nx2 * (_widthsD[i2] / 2 + 2.6), z2 + nz2 * (_widthsD[i2] / 2 + 2.6)
             if on_surface(bx2, bz2):
                 continue
             gyb = ground_y(bx2, bz2)

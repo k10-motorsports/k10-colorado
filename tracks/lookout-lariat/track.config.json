@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -156,6 +156,11 @@
       "ai": "ai/full",
       "uses_connectors": [],
       "_doc": "One layout: gates -> Lariat Trail switchback climb -> Buffalo Bill summit -> Lookout Mountain Rd south to US-40 (Mount Vernon, exit 256) -> US-40 down Mt Vernon Canyon past Heritage Square -> US-6 north -> 19th St -> gates. ~20.9 km, the Nordschleife-length ring."
+    },
+    {
+      "id": "reverse",
+      "ai": "ai/reverse",
+      "_doc": "same world, opposite direction \u2014 own grid/timing via dummies_reverse.json + spawn kn5"
     }
   ],
   "lighting": {

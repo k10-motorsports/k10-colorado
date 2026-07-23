@@ -90,9 +90,12 @@ def place_dummies(
     s_i = index_at_arc(start_arc)
 
     out: dict[str, list[float]] = {}
-    # Start-finish (sector 0) at the START LINE + intermediate sector gates, as L/R pairs.
+    # Start-finish line 30 m AHEAD of the grid: AC arms the lap clock only when the car
+    # CROSSES the line — spawning ON it (start at the same station) never registered laps.
+    line_arc = start_arc + 30.0
+    # Start-finish (sector 0) at the LINE + intermediate sector gates, as L/R pairs.
     for k in range(n_sectors):
-        i = index_at_arc(start_arc + (k / n_sectors) * total)
+        i = index_at_arc(line_arc + (k / n_sectors) * total)
         half = widths_m[i] / 2.0
         out[f"AC_TIME_{k}_L"] = offset(i, +half)
         out[f"AC_TIME_{k}_R"] = offset(i, -half)

@@ -13,6 +13,7 @@
   "max": 4.08
  },
  "undrivable_corners": 0,
+ "floating_furniture": 0,
  "apron_steps": 44,
  "excursion_drops": 271,
  "excursion_far_ledges": 110,

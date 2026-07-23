@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -127,6 +127,11 @@
       "ai": "ai/full",
       "uses_connectors": [],
       "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start. The 'interior' layout was dropped: its interior_grid connector was never defined, and layouts share one kn5 so a distinct interior circuit isn't achievable without splitting geometry."
+    },
+    {
+      "id": "reverse",
+      "ai": "ai/reverse",
+      "_doc": "same world, opposite direction \u2014 own grid/timing via dummies_reverse.json + spawn kn5"
     }
   ],
   "lighting": {

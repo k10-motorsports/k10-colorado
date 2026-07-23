@@ -158,6 +158,7 @@ def run(project_dir: str | Path) -> dict:
 
     surface = TriField()      # everything the car can roll on
     obstacle = TriField()     # everything else that could stand in the corridor
+    _wall_verts = []          # 1WALL columns for the furniture-seating gate
     for objfile in ("track.obj", "environment.obj"):
         p = data / objfile
         if not p.exists():
@@ -167,6 +168,13 @@ def run(project_dir: str | Path) -> dict:
             up = grp["name"].upper()
             if up.startswith(PAINT):
                 continue
+            if up.startswith("1WALL"):
+                _seen_w = set()
+                for tri in grp["tris"]:
+                    for vi in tri:
+                        if vi not in _seen_w:
+                            _seen_w.add(vi)
+                            _wall_verts.append(verts[vi])
             field = surface if up.startswith(DRIVABLE) else obstacle
             for tri in grp["tris"]:
                 field.add(verts, tri, grp["name"])
@@ -177,6 +185,12 @@ def run(project_dir: str | Path) -> dict:
     for i in range(1, n):
         st.append(st[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
     lap = st[-1]
+
+    _fzp = project / "data" / "flat_zones.json"
+    _fzones = json.loads(_fzp.read_text()) if _fzp.exists() else []
+
+    def _in_flat_zone(px, pz):
+        return any((px - a) ** 2 + (pz - b) ** 2 < d * d for a, b, c, d in _fzones)
 
     problems = {"soft_top_in_lane": [], "steps": [], "severe_steps": [], "kinks": [], "obstructions": [],
                 "daylight_gaps": []}
@@ -230,13 +244,15 @@ def run(project_dir: str | Path) -> dict:
                         # flared-apron texture: on widened corner pavement (w >= 11) the OUTER
                         # offsets ride taper fans with rolled crossfall breaks — real aprons
                         # have them and the driving line doesn't touch them. Report, don't gate.
-                        if w >= 9.5 and abs(off) > 3.5:
+                        if w >= 9.5 and abs(off) > 3.5 and not _in_flat_zone(px, pz):
                             problems.setdefault("apron_steps", []).append(
                                 (round(s, 1), round(off, 2), round(step, 3)))
                         else:
+                            # inside a junction flat zone the WHOLE pad is driving surface —
+                            # no exemptions (Kevin: "how do your tests pass this")
                             problems["severe_steps"].append((round(s, 1), round(off, 2), round(step, 3)))
                     elif step > STEP_BUMP_M:
-                        if w >= 9.5 and abs(off) > 3.5:
+                        if w >= 9.5 and abs(off) > 3.5 and not _in_flat_zone(px, pz):
                             problems.setdefault("apron_bumps", []).append(
                                 (round(s, 1), round(off, 2), round(step, 3)))
                         else:
@@ -358,6 +374,35 @@ def run(project_dir: str | Path) -> dict:
             tight_corners.append((round(st[i], 0), round(dturn, 0), round(widths[i], 1)))
     problems["undrivable_corners"] = tight_corners
 
+    # FURNITURE SEATING (Kevin: "get the drive test to fail on what I'm driving right now"):
+    # every wall/fence COLUMN stands on its support — base within 0.8 m of the surface directly
+    # beneath (tri-exact). Rails between posts excused by grounded neighbors. The 27 m barriers
+    # hanging over the creek FAIL here, forever. No advisory mode for this check.
+    floating_walls = []
+    cols = {}
+    for gx2, gy2, gz2 in _wall_verts:
+        k2 = (round(gx2 / 0.6), round(gz2 / 0.6))
+        if k2 not in cols or gy2 < cols[k2][0]:
+            cols[k2] = (gy2, gx2, gz2)
+    grounded = set()
+    gaps2 = {}
+    for k2, (wy, wx, wz) in cols.items():
+        gy2, _own2 = surface.top_at(wx, wz, wy - 0.5)
+        if gy2 is None:
+            gy2, _own2 = surface.top_at(wx, wz, wy)
+        if gy2 is not None:
+            gaps2[k2] = wy - gy2
+            if wy - gy2 <= 0.8:
+                grounded.add(k2)
+        else:
+            gaps2[k2] = 99.0          # nothing under it at all: definitely floating
+    for k2, gp2 in gaps2.items():
+        if gp2 > 0.8:
+            if any((k2[0] + di, k2[1] + dj) in grounded for di in range(-4, 5) for dj in range(-4, 5)):
+                continue
+            floating_walls.append((round(cols[k2][1], 1), round(cols[k2][2], 1), round(gp2, 2)))
+    problems["floating_furniture"] = floating_walls
+
     # REPLICATION ERROR (Kevin: "i want a realistic road. this exists so we have to be able to
     # replicate it"): the lidar measured the ACTUAL road bench — the built deck must match it.
     # |built - raw measured| along the lap, declared bridges exempt. This is the number that says
@@ -401,6 +446,7 @@ def run(project_dir: str | Path) -> dict:
         "daylight_gaps": len(problems["daylight_gaps"]),
         "replication_vs_measured": problems.get("replication"),
         "undrivable_corners": len(problems["undrivable_corners"]),
+        "floating_furniture": len(problems["floating_furniture"]),
         "apron_steps": len(problems.get("apron_steps", [])),
         "excursion_drops": sum(1 for r in problems["excursion_drops"] if r[3]),
         "excursion_far_ledges": sum(1 for r in problems["excursion_drops"] if not r[3]),
@@ -437,10 +483,13 @@ def run(project_dir: str | Path) -> dict:
             or (not _exc_adv and report["excursion_drops"] > int(report["lap_m"] / 1000))
             or report["obstruction_stations"] > 0
             or report["undrivable_corners"] > 0
+            or report["floating_furniture"] > 0
             or severe_per_km > 12.0
             or report["steps_per_km"] > 75.0)
     print(f"DRIVE TEST {cfg['slug']}  lap {lap/1000:.2f} km  (10 wheel paths @ {STEP_M} m)")
     print(f"  ground on top mid-lane : {report['soft_top_in_lane']}")
+    print(f"  floating furniture (walls/fences off support): {report['floating_furniture']} "
+          f"{problems['floating_furniture'][:3] if problems['floating_furniture'] else ''}")
     print(f"  undrivable corners (>100deg @ <11m): {report['undrivable_corners']} "
           f"{problems['undrivable_corners'][:4] if problems['undrivable_corners'] else ''}")
     print(f"  severe steps (>{STEP_SEVERE_M*100:.0f} cm)  : {report['severe_steps']}")

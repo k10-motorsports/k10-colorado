@@ -181,7 +181,8 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
 def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
                   curb_h: float = 0.15, curb_face_w: float = 0.08, sidewalk_w: float = 1.5,
                   grade_w: float = 1.0, grass_clearance: float = 0.25, tile_m: float = 2.0,
-                  bank_at=None, ground=None, ratio: float = 2.0, max_grade_w: float = 60.0) -> dict:
+                  bank_at=None, ground=None, ratio: float = 2.0, max_grade_w: float = 60.0,
+                  roll_flags=None) -> dict:
     """A continuous urban edge swept along BOTH road sides as ONE strip so road, curb, sidewalk and
     grass share seam vertices and nothing can hover. Per side, the cross-section is five profile points
     out from the lane edge:
@@ -223,9 +224,14 @@ def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             edge_bank = side * half * (math.tan(bank_at(arc)) if bank_at else 0.0)
             base_y = y + edge_bank
             r = len(verts)
+            # ROLLED CURB through junction flares (roll_flags[i]): where the flared roadway
+            # crosses the sidewalk line, the curb rolls to a 2-4 cm apron lip (Commerce City
+            # driveway spec) instead of standing as a 15 cm wall inside the mouth.
+            _roll = bool(roll_flags[i]) if roll_flags is not None else False
             for off, h in fixed:
                 o = half + off
-                verts.append((x + nx * o, base_y + h, z + nz * o))
+                hh = (min(h, 0.03) if h >= 0 else h) if _roll else h
+                verts.append((x + nx * o, base_y + hh, z + nz * o))
                 uvs.append((off / sidewalk_off, arc / tile_m))
             # point 4: drape onto the ground at a fill/cut slope
             verge_y = base_y - grass_clearance             # height at the slope-start point (3)

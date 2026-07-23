@@ -315,6 +315,42 @@ def build(project_dir: str | Path) -> Path:
     out.write_bytes(bytes(w.b))
     print(f"[kn5_write] wrote {out}  ({out.stat().st_size/1e6:.1f} MB, "
           f"{len(groups)} meshes, {len(dummies)} dummies)")
+    # per-layout SPAWN kn5s: a nodes-only kn5 per data/dummies_<layout>.json (loaded via
+    # models_<layout>.ini MODEL_1). Reverse layouts face the opposite travel direction.
+    for _dp in sorted(data.glob("dummies_*.json")):
+        _layout = _dp.stem[len("dummies_"):]
+        _ld = json.loads(_dp.read_text())
+        _lyaw = start_yaw
+        if clp.exists() and len(pts) >= 2 and _ld.get("AC_START_0"):
+            sx2 = -1.0 if cfg.get("mirror_x") else 1.0
+            _mp = [(sx2 * q[0], q[2]) for q in pts]
+            _st0 = _ld["AC_START_0"]
+            _i0l = min(range(len(_mp)), key=lambda i: (_mp[i][0] - _st0[0]) ** 2 + (_mp[i][1] - _st0[2]) ** 2)
+            _ia, _ib = max(0, _i0l - 1), min(len(_mp) - 1, _i0l + 1)
+            _tx, _tz = _mp[_ib][0] - _mp[_ia][0], _mp[_ib][1] - _mp[_ia][1]
+            if _layout == "reverse":
+                _tx, _tz = -_tx, -_tz
+            _L = math.hypot(_tx, _tz) or 1.0
+            _lyaw = math.atan2(_tx / _L, _tz / _L)
+        _sw = W()
+        _sw.i32(5)                               # version
+        _sw.i32(0)                               # textures
+        _sw.i32(0)                               # materials
+        _sw.i32(1); _sw.s("spawn_" + _layout); _sw.u32(len(_ld)); _sw.u8(1)
+        for _v in [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]:
+            _sw.f32(_v)
+        _c2, _s2 = math.cos(yaw), math.sin(yaw)
+        FACING2 = ("AC_START", "AC_PIT", "AC_HOTLAP")
+        for _nm, (_px, _py, _pz) in _ld.items():
+            _sw.i32(1); _sw.s(_nm); _sw.u32(0); _sw.u8(1)
+            _rx, _rz = _px * _c2 - _pz * _s2, _px * _s2 + _pz * _c2
+            _phi = (_lyaw + yaw) if any(_nm.startswith(_q) for _q in FACING2) else 0.0
+            _cp, _sp = math.cos(_phi), math.sin(_phi)
+            for _v in [_cp, 0, -_sp, 0, 0, 1, 0, 0, _sp, 0, _cp, 0, _rx, _py, _rz, 1]:
+                _sw.f32(_v)
+        _sp_out = project_dir / "build" / f"{slug}__{_layout}.kn5"
+        _sp_out.write_bytes(bytes(_sw.b))
+        print(f"[kn5_write] spawn kn5: {_sp_out.name} ({len(_ld)} dummies, layout {_layout})")
     return out
 
 

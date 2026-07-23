@@ -477,6 +477,10 @@ def build(project_dir: str | Path) -> dict:
         if abs(centerline[_i1d][1] - centerline[_i0d][1]) / _run_m < 0.025:
             _disc_apexes.append(_ax)
     print(f"  [fold pads] discs at {len(_disc_apexes)}/{len(_apexes)} apexes (flat zones only)")
+    # junction FLAT ZONES = the flat-grade fold apexes (disc set): terrain AND pavement grade to
+    # one plane there (the mound in the mouth + the proud exit-ribbon lip both die here)
+    _flat_zones = [(centerline[_ax][0], centerline[_ax][2], centerline[_ax][1],
+                    widths[_ax] / 2.0 + 16.0) for _ax in _disc_apexes]
     bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
     if bnk is not None and _apexes:
         _fold_arcs = [_stp[_a] for _a in _apexes]
@@ -631,6 +635,17 @@ def build(project_dir: str | Path) -> dict:
     # band=2.5 == the shoulder's verge_w: sheet and terrain must BREAK AT THE SAME LINE with the
     # same slopes, or a stagger wedge of air opens under every cut face (the tenting gate read a
     # constant ~2 m of daylight under the sheet with the old band=4.0 vs verge 2.5).
+    if _flat_zones:
+        _nfz = 0
+        for _rowf in grid_xyz:
+            for _kf in range(len(_rowf)):
+                _gxf, _gyf, _gzf = _rowf[_kf]
+                for _zx, _zz, _zy, _zr in _flat_zones:
+                    if (_gxf - _zx) ** 2 + (_gzf - _zz) ** 2 < _zr * _zr and abs(_gyf - _zy) < 8.0:
+                        _rowf[_kf] = (_gxf, _zy - 0.02, _gzf)
+                        _nfz += 1
+                        break
+        print(f"  [flat zones] {_nfz} grid nodes graded flat through junction interiors")
     ribbon.grade_embankment(grid_xyz, centerline, widths, bank_at=bnk, band=2.5,
                             extra_roads=[(p, w) for _n, p, w in connectors],
                             clearance=GRASS_CLEARANCE_M, bridge_of=bridge_of)
@@ -638,6 +653,20 @@ def build(project_dir: str | Path) -> dict:
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
     road = ribbon.road_ribbon(centerline, widths, tile_m=4.0, bank_at=bnk)  # 4 m = the Lake Murray asphalt scale
+    # ONE SHEET THROUGH JUNCTIONS: inside a flat zone every pavement vert snaps to the plane —
+    # coplanar centerlines still left each leg's CAMBERED ribbon riding proud of the pad
+    # (the 20-40 cm lip across the mouth in Kevin's photo).
+    def _flatten_pavement(mesh, lift):
+        if not _flat_zones or not mesh.get("vertices"):
+            return
+        V = mesh["vertices"]
+        for _iF in range(len(V)):
+            x, y, z = V[_iF]
+            for _zx, _zz, _zy, _zr in _flat_zones:
+                if (x - _zx) ** 2 + (z - _zz) ** 2 < _zr * _zr and abs(y - _zy) < 4.0:
+                    V[_iF] = (x, _zy + lift, z)
+                    break
+
     # FOLD PADS: at fold apexes the swept ribbon's fans double-cover with pleated heights no
     # matter how flat the profile — a >105 deg corner at 14-18 m width cannot be a ribbon. Lay a
     # flat paved DISC (fan) 1 cm proud over each fold: it becomes the drivable top surface, one
@@ -646,13 +675,13 @@ def build(project_dir: str | Path) -> dict:
         _cx, _cy, _cz = centerline[_ax]
         _rr = widths[_ax] / 2.0 + 3.0
         _b0 = len(road["vertices"])
-        road["vertices"].append((_cx, _cy + 0.012, _cz))
+        road["vertices"].append((_cx, _cy + 0.028, _cz))
         road["uvs"].append((_cx / 4.0, _cz / 4.0))
         _NS = 28
         for _k in range(_NS):
             _a = 2.0 * math.pi * _k / _NS
             _px, _pz = _cx + _rr * math.cos(_a), _cz + _rr * math.sin(_a)
-            road["vertices"].append((_px, _cy + 0.012, _pz))
+            road["vertices"].append((_px, _cy + 0.028, _pz))
             road["uvs"].append((_px / 4.0, _pz / 4.0))
         for _k in range(_NS):
             road["tris"].append((_b0, _b0 + 1 + _k, _b0 + 1 + (_k + 1) % _NS))
@@ -704,7 +733,10 @@ def build(project_dir: str | Path) -> dict:
         _sw_line = [sorted(widths[max(0, i - _swin):i + _swin + 1])[len(widths[max(0, i - _swin):i + _swin + 1]) // 2]
                     for i in range(len(widths))]
         _sw_widths = [max(a, b) for a, b in zip(_sw_line, widths)]
-        shoulder = ribbon.curb_sidewalk(centerline, _sw_widths, lift=ROAD_LIFT_M,
+        # roll the curb wherever the flared roadway exceeds the street's own line — the raised
+        # curb was standing INSIDE the junction mouths ("sidewalks jut into the road")
+        _sw_roll = [w0 > sl + 0.5 for w0, sl in zip(widths, _sw_line)]
+        shoulder = ribbon.curb_sidewalk(centerline, _sw_widths, roll_flags=_sw_roll, lift=ROAD_LIFT_M,
                                         grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk, ground=grass_surf,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
                                         curb_face_w=float(edge_cfg.get("curb_face_w", 0.08)),
@@ -738,6 +770,14 @@ def build(project_dir: str | Path) -> dict:
     # MESH is triangulated grid nodes — a node near the seam can sit a touch ABOVE the draped edge (small
     # +0.1–0.5 m pokes on banked ovals). Clamp the grid just below the draped strips (tiny 5 cm clearance,
     # short reach) so no grass triangle pokes up through them, without re-opening a visible gap.
+    # one-sheet junctions: legs, runoff, shoulders and kerbs all snap to the flat-zone plane
+    _flatten_pavement(road, 0.012)
+    _flatten_pavement(runoff, 0.010)
+    _flatten_pavement(shoulder, 0.008)
+    _flatten_pavement(kerb, 0.010)
+    if _flat_zones:
+        print(f"  [flat zones] pavement snapped to one sheet across {len(_flat_zones)} zone points")
+
     # FORCE CONTACT (Kevin: "THEY DON'T NEED TO BE THE SAME, THEY NEED TO TOUCH"): the grass
     # sheet is BENT to pass through the shoulder's ground-meet line. No samplers, no windows, no
     # tolerances — the strip's own meet vertices become the terrain's heights near the seam, so
@@ -780,15 +820,46 @@ def build(project_dir: str | Path) -> dict:
     ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0,
                                     grid_spacing=float(meta["spacing_m"]))
     mk_cfg = cfg_raw.get("road_markings", {}) or {}
+    # EDGE LINES FOLLOW THE LANE, not the pavement boundary (Kevin: "why don't outer lines
+    # follow centerline?"): a rolling-median width line, clamped inside the real pavement —
+    # flare pavement stays OUTSIDE the stripe like a real apron.
+    _mkw = 4
+    _mk_line = [sorted(widths[max(0, i - _mkw):i + _mkw + 1])[len(widths[max(0, i - _mkw):i + _mkw + 1]) // 2]
+                for i in range(len(widths))]
+    _mk_widths = [min(m0, w0) for m0, w0 in zip(_mk_line, widths)]
     if mk_cfg.get("style") == "lane":
         # Lake Murray-style painted lines: solid double-yellow centre (two-way), solid white edge
         # lines, dashed dividers where width allows (ported ribbon.lane_markings)
-        _lm = ribbon.lane_markings(centerline, widths, bank_at=bnk,
+        _lm = ribbon.lane_markings(centerline, _mk_widths, bank_at=bnk,
                                    center_yellow=bool(mk_cfg.get("center_yellow", True)))
         marks, yline = _lm["white"], _lm["yellow"]
     else:
-        marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
+        marks = ribbon.road_markings(centerline, _mk_widths, bank_at=bnk)
         yline = {"vertices": [], "uvs": [], "tris": []}
+    # NO MARKINGS THROUGH FOLD ZONES (Kevin's photo: white edge lines + yellow centerlines from
+    # both passes crisscross the corner pad — unreadable). MUTCD drops lane lines through
+    # junction boxes; so do we: kill marking tris near any fold apex.
+    def _strip_marks_at_folds(mesh, radius_of):
+        if not _apexes or not mesh["tris"]:
+            return mesh
+        keep = []
+        for t in mesh["tris"]:
+            cx = sum(mesh["vertices"][v][0] for v in t) / 3.0
+            cz = sum(mesh["vertices"][v][2] for v in t) / 3.0
+            ok = True
+            for _ax in _apexes:
+                ax, _, az = centerline[_ax]
+                if (cx - ax) ** 2 + (cz - az) ** 2 < radius_of(_ax) ** 2:
+                    ok = False
+                    break
+            if ok:
+                keep.append(t)
+        mesh["tris"] = keep
+        return mesh
+
+    _fold_r = lambda _ax: widths[_ax] / 2.0 + 14.0
+    marks = _strip_marks_at_folds(marks, _fold_r)
+    yline = _strip_marks_at_folds(yline, _fold_r)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
     yline["vertices"] = [(x, y + ROAD_LIFT_M + 0.011, z) for x, y, z in yline["vertices"]]
 
@@ -1146,6 +1217,9 @@ def build(project_dir: str | Path) -> dict:
             grid_xyz[_j7w][_i7w] = _gv7[_j7w * _nx7w + _i7w]
     # Persist the graded ground surface for build_env (scenery height) + audit_mesh check G. Reflects
     # grid_xyz exactly (post ALL anti-poke/contact passes) — the surface the grass mesh triangulates.
+    (data / "flat_zones.json").write_text(json.dumps(
+        [[round(a, 2), round(b, 2), round(c, 2), round(d, 2)] for a, b, c, d in _flat_zones]),
+        encoding="utf-8")
     write_ground_local(data / "ground.local.json", grid_xyz)
     grass = ribbon.grass_terrain(grid_xyz)
 
@@ -1325,6 +1399,9 @@ def build(project_dir: str | Path) -> dict:
                     _r0, _r1 = _bs17 + _q * 2, _bs17 + (_q + 1) * 2
                     _skin["tris"].append((_r0, _r0 + 1, _r1 + 1))
                     _skin["tris"].append((_r0, _r1 + 1, _r1))
+    _flatten_pavement(ring_mesh, 0.004)     # rings weld to PRE-flatten meet heights — snap
+    _flatten_pavement(para_mesh, 0.004)     # them (and stone runs) to the junction plane too
+    _flatten_pavement(wallskin, 0.004)
     print(f"  [#17] welded rings {len(ring_mesh['vertices'])}v; parapets {len(para_mesh['vertices'])}v; "
           f"wall skins {len(wallskin['vertices'])}v; rock skins {len(rockskin['vertices'])}v")
     # ==========================================================================================
@@ -1409,7 +1486,27 @@ def build(project_dir: str | Path) -> dict:
                 return False
             fence_wood = _props_f.instance_line(centerline, _wf_mod, ranges=_ranges, widths_m=widths,
                                                 ground=lambda x, z: _grid_trisurf(grid_xyz, x, z),
-                                                module_len=1.73, max_dy=3.5, reject=_on_pavement_f)
+                                                module_len=2.02, max_dy=3.5, reject=_on_pavement_f)
+            # EXACT post-filter: probe points miss pavement slivers clipping a panel corner
+            # (one panel = 14 audit verts, three probe schemes missed it). Test the ACTUAL
+            # stamped verts and drop whole panels that touch pavement.
+            _mvn = len(_wf_mod["vertices"])
+            if _mvn and fence_wood["vertices"]:
+                _keepV, _keepU, _keepT = [], [], []
+                _tpm = len(_wf_mod["tris"]) * 2      # double-sided stamping doubles tris
+                for _mi in range(len(fence_wood["vertices"]) // _mvn):
+                    _vs9 = fence_wood["vertices"][_mi * _mvn:(_mi + 1) * _mvn]
+                    if any(_on_pavement_f(vx9, vz9, vy9) for vx9, vy9, vz9 in _vs9):
+                        continue
+                    _b9 = len(_keepV)
+                    _keepV.extend(_vs9)
+                    _keepU.extend(fence_wood["uvs"][_mi * _mvn:(_mi + 1) * _mvn])
+                    for a9, b9, c9 in fence_wood["tris"][_mi * _tpm:(_mi + 1) * _tpm]:
+                        _keepT.append((a9 - _mi * _mvn + _b9, b9 - _mi * _mvn + _b9, c9 - _mi * _mvn + _b9))
+                _dropped9 = len(fence_wood["vertices"]) // _mvn - len(_keepV) // _mvn
+                fence_wood = {"vertices": _keepV, "uvs": _keepU, "tris": _keepT}
+                if _dropped9:
+                    print(f"  [fences] dropped {_dropped9} panels touching pavement (exact vert test)")
     if cfg_raw.get("props", {}).get("concrete_barriers"):
         # Kevin's 4 m concrete barrier modules replace the procedural swept jersey — real geometry,
         # instanced along the SAME warning-barrier runs, shipped physical as 1WALL_* (collidable).
@@ -1464,9 +1561,63 @@ def build(project_dir: str | Path) -> dict:
                     elif best3 is None or _y3 > best3:
                         best3 = _y3
             return best3
-        barrier = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod,
+        # the procedural swept jersey is REPLACED by instanced modules in this path — zero it
+        # or it ships underneath them (the un-seated sweep floated 27 m over the Quebec valley
+        # and survived three placement fixes because it wasn't placed, it was left over).
+        barrier = {"vertices": [], "uvs": [], "tris": []}
+        # fold-corner danger runs: replace centerline-offset placement (zigzag across the
+        # mouth) with a clean RIM ARC outside the turn — the Long Beach look: a wall of
+        # concrete wrapping the outside of the hairpin, nothing inside the box.
+        _arc_spots, _line_spots = [], []
+        for _sp in barrier_spots:
+            _ai2 = _sp.get("apex_idx", _sp["start_idx"])
+            _near_ax = next((a for a in _apexes
+                             if abs(_stb[a] - _stb[min(_ai2, len(_stb) - 1)]) < 45.0), None)
+            (_arc_spots if _near_ax is not None else _line_spots).append((_sp, _near_ax))
+        for _sp, _ax2 in _arc_spots:
+            _cx2, _cy2, _cz2 = centerline[_ax2]
+            _rr2 = widths[_ax2] / 2.0 + 4.6
+            _tin = _ax2
+            while _tin > 0 and _stb[_ax2] - _stb[_tin] < 30.0:
+                _tin -= 1
+            _tout = _ax2
+            while _tout < len(centerline) - 1 and _stb[_tout] - _stb[_ax2] < 30.0:
+                _tout += 1
+            _vin = (centerline[_ax2][0] - centerline[_tin][0], centerline[_ax2][2] - centerline[_tin][2])
+            _vout = (centerline[_tout][0] - centerline[_ax2][0], centerline[_tout][2] - centerline[_ax2][2])
+            _bis = (_vout[0] - _vin[0], _vout[1] - _vin[1])       # points INTO the turn
+            _bl = math.hypot(*_bis) or 1e-9
+            _out_ang = math.atan2(-_bis[1] / _bl, -_bis[0] / _bl)  # outward bisector
+            _nm2 = max(8, int((_rr2 * 3.5) / 4.04))
+            for _k2 in range(_nm2 + 1):
+                _a2 = _out_ang + (_k2 / _nm2 - 0.5) * math.radians(200.0)
+                _bx2, _bz2 = _cx2 + _rr2 * math.cos(_a2), _cz2 + _rr2 * math.sin(_a2)
+                if _on_pavement_f(_bx2, _bz2, _cy2):
+                    continue
+                _gy2 = _grid_trisurf(grid_xyz, _bx2, _bz2)
+                if _gy2 is None or abs(_gy2 - _cy2) > 4.0:
+                    continue
+                _tx2, _tz2 = -math.sin(_a2), math.cos(_a2)         # tangent along the arc
+                _bb2 = len(barrier["vertices"]) if barrier.get("vertices") else 0
+                # stamp the module along the arc tangent
+                _base2 = len(_mod["vertices"])
+                _b0v = len(barrier["vertices"])
+                for _mx2, _my2, _mz2 in _mod["vertices"]:
+                    barrier["vertices"].append((_bx2 + _tx2 * _mz2 + math.cos(_a2) * _mx2,
+                                                max(_gy2, _cy2 - 0.05) + _my2,
+                                                _bz2 + _tz2 * _mz2 + math.sin(_a2) * _mx2))
+                barrier["uvs"].extend(_mod["uvs"])
+                barrier["tris"].extend((a3 + _b0v, b3 + _b0v, c3 + _b0v) for a3, b3, c3 in _mod["tris"])
+                barrier["tris"].extend((a3 + _b0v, c3 + _b0v, b3 + _b0v) for a3, b3, c3 in _mod["tris"])
+        barrier_spots = [_sp for _sp, _ in _line_spots]
+        barrier2 = props_mod.instance_barriers(centerline, widths, barrier_spots, _mod,
+                                              station_skip=lambda i: bridge_of(_stb[min(i, len(_stb) - 1)]),
                                               on_pavement=_on_pavement_f,
                                               surface_y=_edge_surface_y)
+        _b0m = len(barrier["vertices"])
+        barrier["vertices"].extend(barrier2["vertices"])
+        barrier["uvs"].extend(barrier2["uvs"])
+        barrier["tris"].extend((a3 + _b0m, b3 + _b0m, c3 + _b0m) for a3, b3, c3 in barrier2["tris"])
         barrier_group = ("1WALL_barrier", "kerb")
         print(f"  concrete barriers: {len(barrier['vertices'])} verts instanced over {len(barrier_spots)} runs")
     # Lift BEFORE the road-guard + proximity trim so they compare in the same frame the audit (and
@@ -1630,6 +1781,9 @@ def build(project_dir: str | Path) -> dict:
                       "tris": [(a, c, b) for a, b, c in shoulder["tris"]]}
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
+    # REVERSE LAYOUT (Kevin: drive it both ways): same world, opposite travel — its own grid on
+    # the reversed lap's best straight, timing line armed in the reverse direction.
+    dummies_rev = dummies_mod.place_dummies(centerline[::-1], widths[::-1], n_sectors=3)
 
     # Persist the FINISHED centerline (corner-rounded, mirrored — the exact line the ribbon was
     # swept along) for the drive test: near sharp junctions it deviates metres from the raw local
@@ -1671,6 +1825,7 @@ def build(project_dir: str | Path) -> dict:
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
+    (data / "dummies_reverse.json").write_text(json.dumps(dummies_rev, indent=1), encoding="utf-8")
 
     # road surface area (sum of triangle areas in the horizontal plane)
     rv = road["vertices"]
