@@ -131,6 +131,37 @@ one-shotting is a CONFIG exercise, not a code exercise.
   gating stays absolute. Furniture near flares: span-max widths, pavement-reject (fences skip,
   barriers WALK OUTBOARD), 4.2 m fence offsets.
 
+### Stitched V-junctions: the circular-fillet law (5 failed builds — rc13)
+When a route reverses >120° at a near-point (two OSM nodes metres apart at a Y-junction — the
+route "stitches" through the sharp vertex), the fix is a **true circular arc at the source**,
+in the centerline, before anything is built on it:
+- **NEVER a bezier with control at the apex**: its min radius is ~T·sin²(γ/2)/cos(γ/2) — for a
+  160° V with ±16 m tangents that is **0.5 m**, and the 10-23 m ribbon folds over itself
+  (ground-on-top contacts, mid-pavement steps, a phantom bridge INSIDE the junction mouth).
+- Circular fillet: γ = angle between leg chords at the apex; target R ≥ max(10, 0.6·width+3);
+  tangent length **L = R / tan(γ/2)** (finite and modest — ~56 m for 160° at R=10). Spread the
+  replaced indices by even arc length; cap widths in the arc so the inner edge keeps R > 1.5 m.
+- **The fillet lives in the SHARED centerline function** (`finished_centerline`) — applied in
+  build_mesh only, the scenery anchored to the old V and a warning sign stood mid-lane where
+  the arc now sweeps pavement.
+- **Fillet zones suppress bridge detection** (XZ + layer window): a junction mouth is a paved
+  fan on grade; the raw along-road ground profile is keyed to the OLD path and reads "high".
+
+### Seating anything on the ground: the two laws (audit E, 3 more builds)
+1. **Sample the RENDERED surface tri-exact** — never the coarse grid it was derived from. The
+   grid chords over a gully ~4 m above the fine spliced grass that ships.
+2. **GROUND means WALKABLE** — reject tris with |ny|/|n| < 0.5 before the closest-to-yref pick;
+   a near-vertical mountainside face barycentric-answers any height in its span and seats posts
+   on the wall. (Both laws were already in the barrier seater; the fence builder relearned them.)
+Fence bottom edges additionally SUBDIVIDE adaptively (midpoint deviation >0.3 m → split) so
+3 m chords don't bridge gully dips; chain-link follows terrain like the real thing.
+
+### Sidewalk invariant (Kevin's law, audit gate I)
+**A sidewalk must never isolate a driving surface.** Builder: the curb rolls flat wherever
+pavement exists beyond the walk line — probe the WHOLE 3-9.5 m band beyond the back edge (one
+missed radius left a full-height curb island). Gate: audit I fails any sidewalk-curb vert
+raised >8 cm with pavement at similar height on both sides (tri-exact, hard fail).
+
 ### Hard-won placement rules (each cost a build cycle — bake into any new pass)
 - **Trees**: clearance is canopy-aware (`off += canopy_half x scale`) and checked against
   EVERY nearby leg within the height layer, not just the leg that placed the tree
