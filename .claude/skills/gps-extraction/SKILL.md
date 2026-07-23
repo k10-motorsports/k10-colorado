@@ -48,18 +48,30 @@ Overpass QL syntax · loop-closure mechanics · connector tagging for layout var
 
 Three defects this stage kills (observed on Sand Creek / Lookout Lariat):
 
-### 1. Right-street lock — identity-gated OSM matching
+### 1. Right-street lock — identity-gated OSM matching (IMPLEMENTED in widths_from_osm, 2026-07-22)
 Width/attribute analysis latched onto the nearest way and parallel freeways won: Sand Creek Drive
 matched I-270; the 46th St / 45th frontage area matched I-70 — inheriting freeway widths (the
-monster flares behind the raw intersection mouths). The route config NAMES every street
-(`route.roads`); that identity travels with each centerline vertex and gates all matching:
-- candidate way must AGREE on normalized name/ref with the vertex's identity,
-- bearing within 25 deg of the centerline tangent,
-- laterally within max(12 m, own width),
-- `motorway/motorway_link/trunk` rejected unless the segment's own identity IS that ref.
-Diagnostic + gate: `data/street_match_report.json` (per station: matched way, class, distance,
-bearing). Build FAILS if >2% of stations match a differently-named way, or ANY freeway capture
-on a non-freeway street.
+monster flares behind the raw intersection mouths). Two rules now live in
+`scripts/gps/widths_from_osm.py`, and BOTH were needed:
+
+**(a) Freeway identity lock**: `motorway/trunk/motorway_link/trunk_link` ways may donate widths
+ONLY when the route declares them in `route.roads` — by name, `ref:US 40`, or `id:N,N`. Undeclared
+freeway ways are dropped before matching (Sand Creek: 183 excluded). Declared ones (the Lariat's
+US-40/US-6) match normally — this is a width-matching filter, NOT a ban on freeways as track roads.
+
+**(b) The lanes tag is ground truth — the bigger bug**: the width table FLOORED every class to an
+"urban typical" lane count (`secondary` → 3 lanes) regardless of what OSM tags. A tagged 2-lane
+street shipped 15.5 m wide; a tagged ONE-lane street shipped 15.5 m — *that* was "Sand Creek is
+highways", and the freeway lock alone changed only 9/3232 vertices. Explicit `lanes` wins
+(`max(int(lanes), 1)`); the class floor applies only when OSM is silent. Verified: Sand Creek Dr
+15.5→12.0 m (Commerce City standard 11–12.2), E 46th 15.5→8.5 m, Colorado Blvd 20→16.5 m.
+
+**Verify numerically before shipping**: diff `widths_m` in `centerline.local.json` against the
+previous build and read the per-street summary table — never declare a width fix from the code
+alone (this one was "fixed" once before without ever being implemented).
+
+Still unimplemented from the original design: bearing gate, per-vertex name identity,
+`street_match_report.json`.
 
 ### 2. Engineered alignment — smooth like a surveyor, honest like the map
 Raw OSM node wobble (±1-2 m) swept at road scale reads hand-drawn. Denoise the horizontal

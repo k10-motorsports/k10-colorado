@@ -20,16 +20,25 @@ prints a report, and exits `1` if any defect remains so `build_network.sh` (or C
 | Check | Defect | How it's measured |
 |-------|--------|-------------------|
 | **A. supports-in-road** | a viaduct pier/column standing in a road that passes under its deck (car hits a column) | each emitted pier vs the real `1ROAD` verts: a road surface `SUPPORT_BELOW` m under the deck within `SUPPORT_R` = speared |
-| **B. terrain-poke** | a `1GRASS` vertex sitting above the road surface next to it (launches the car) | every `1GRASS` vert vs nearby `1ROAD` verts: grass `> road_y + POKE_ABOVE_M` within `POKE_R` = poke |
+| **B. terrain-poke** | a `1GRASS` vertex sitting above the road surface AT ITS OWN XZ (launches the car) | **footprint-exact**: grass vert vs the barycentric `1ROAD*` triangle surface directly over/under it, near-vertical tris excluded. NEVER vertex-radius: a legal 0.75:1 bench cut stands +2.7 m within 5 m of the deck and false-flags forever (blocked 3 builds); paved skirts are walls, not road |
 | **C. junction-crossing** | a ramp crossing OVER the road it connects to at grade instead of merging into it | per-edge decks (trimmed like the build): two edges within `CROSS_R`, `|Δy| < CROSS_DY`, tangents `> CROSS_ANGLE_DEG` apart |
 | **D. wall-on-road** | a `1WALL` vert sitting ON another road — a median wall landing on the opposing carriageway, or walls tangling across a road at an interchange (covers "walls crossing over others" + "walls passing onto the road") | a wall vert within 2.5 m of a `1ROAD` vert at `|Δy| < 1.2`. A wall is placed >off past its OWN edge, so this only catches a DIFFERENT road |
 | **E. wall-floating** | a wall base hovering over the ground/road beneath it | min-y per 0.6 m wall column vs nearest ground within 3 m: base `> ground + 0.6` = floating |
 | **F. curb-not-flush** | a `KERB` vert meeting neither the road nor the ground | curb vert with no `1ROAD` and no `1GRASS` vert within 2 m at `|Δy| < 0.5` |
-| **G. prop-floating** | a scatter billboard (bush/tree/palm) hovering above the ground | needs `environment.obj` (post-env). Base (min-y per column) vs the conformed-ground SURFACE (`ground.local.json`) — measure against the SAME surface the props are placed on, NOT nearest verts (that phantoms 7 m floats on Mt Soledad's slope) |
+| **G. prop-floating** | a scatter billboard (bush/tree/palm) hovering above the ground | needs `environment.obj` (post-env). Base (min-y per column) vs the conformed-ground SURFACE (`ground.local.json`) — measure against the SAME surface the props are placed on, NOT nearest verts (that phantoms 7 m floats on Mt Soledad's slope), and sample it **triangle-exact with the render's diagonal split** — bilinear reads ~1 m off the rendered triangle on steep slopes (19 phantom floats on the Lariat) |
 
 **Gating:** A, B, D, E, F, G are hard drivability/cruft failures — the CLI exits nonzero on any. C is
 reported but non-gating (residual at-grade crossings have their walls gapped, so they're drivable). G
 needs the env stage, so run the audit AGAIN after `build_network_env` to cover it.
+
+## Second principle — when a check flags legal construction, fix the CHECK's geometry model
+
+Once the engine builds real earthworks, naive proximity checks false-positive on them: B's old
+vertex-radius test fired on a bench-cut face standing legally beside the deck; G's bilinear sampler
+disagreed with the triangle the props were actually seated on. The audit's geometry model must match
+what construction legally produces (footprint coverage, render-exact surfaces, steepness classes) —
+never "fix" correct geometry to appease a lagging check, and never widen a tolerance to make a
+false positive go away (that blinds the check to the real defect it exists for).
 
 ## First principle — measure the BUILT geometry, never a reconstruction
 

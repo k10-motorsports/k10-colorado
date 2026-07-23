@@ -80,6 +80,16 @@ Rates — measured against the driver-approved baseline (Sand Creek v0.15.x: ~11
 `kinks_per_km` is REPORTED but does not gate: on a real mountain profile, 3 %-pt/m grade events
 are genuine road texture. Watch its trend between builds of the same track instead.
 
+## Reading a FAIL: counters first, worst-lists second
+
+The printed "worst" lists are the biggest entries of NON-gating or under-threshold categories too —
+they can be identical between a passing and a failing build. When the verdict flips to FAIL, diff the
+REPORT COUNTERS against the last passing run to find which gate actually tripped, then drill into
+that category. (Two full build cycles were lost chasing 0.4 m "worst severe" steps that existed,
+gated-green, in the passing build — the actual regression was `ground on top mid-lane: 1618`, printed
+four lines up.) `soft_top_in_lane` specifically is the CONTACT regression detector: any terrain pass
+that raises ground (contact pins, bends, splices) shows its failures there first.
+
 ## Process rule
 
 A build ships only after BOTH gates: `audit_mesh` (geometry classes) AND `drive_test` (the drive),
