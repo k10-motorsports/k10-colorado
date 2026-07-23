@@ -156,6 +156,30 @@ in) → assets/models + assets/textures + a pbr TEXTURES entry. Specific prefixe
 1WALL_PARA) must precede generic ones (1WALL) — the prefix match is dict-ordered. Maya .mb is
 unusable — ask for FBX/OBJ.
 
+### AC packaging facts that cost live laps to learn
+- `map.ini SCALE_FACTOR` is **meters per pixel** (Kunos ~5-9). Shipping px/m maps every point
+  off-canvas — the minimap silently shows nothing.
+- The **timing line must sit ~30 m AHEAD of AC_START** — spawning ON the line never arms the
+  lap clock. Verify gate positions by parsing the shipped kn5, not the JSON.
+- Multi-layout = `models_<layout>.ini` + `<track>/<layout>/{map.png,data/,ai/}` + `ui/<layout>/`;
+  single-layout = suffix-FREE (`models.ini`, root map/ui/ai). NEVER leave both structures in the
+  output folder — clean stale structure files at pack.
+- Reverse layouts: `dummies_reverse.json` → nodes-only spawn kn5 (`<slug>__reverse.kn5`, header
+  `sc6969`+version, 0 textures/materials, dummy nodes with yaw+π facing) loaded as MODEL_1.
+- Warning furniture is TRACK-style, not road-style (Kevin): the sign stands AT the danger
+  (apex, barrier line, facing approach), outside the 6.3 m travel swath; danger boards are real
+  CSP `[LIGHT_x]` sources (FADE_AT ~3000 to read from far) + hot emissive, both directions.
+
+### Debugging doctrine (a full day distilled)
+- **Identical numbers across a fix = wrong emitter.** If the same count/coords survive a change,
+  the geometry isn't produced where you're editing (the 27 m floaters were a leftover unseated
+  mesh shipping UNDER the instanced barriers through three placement 'fixes').
+- **Builder and gate share EXACT tests, never approximations of each other.** Probe points vs
+  footprint tests will eventually disagree (one panel corner-clipped by a diagonal apron beat
+  three probe schemes; the exact per-vertex filter ended it).
+- When a driver says "make the test fail on this" — encode it as a HARD gate with no advisory
+  mode, then let the gate drive the fix loop. It caught three further regressions same-day.
+
 ## Scope boundary
 
 Documents what it **can't own**: **AI line recording and in-game testing require the Windows GUI**
