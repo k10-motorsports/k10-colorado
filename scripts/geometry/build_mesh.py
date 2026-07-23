@@ -1641,6 +1641,10 @@ def build(project_dir: str | Path) -> dict:
     print(f"  barriers: {len(_keep_spots)} danger runs keep concrete; "
           f"{len(_fence_spots)} runs become wooden fences")
     barrier_spots = _keep_spots
+    if cfg_raw.get("scenery", {}).get("fences", True) is False:
+        # scenery.fences: false — no fence furniture at all (warning runs included); the
+        # danger-run concrete barriers above are unaffected.
+        _fence_spots = []
     if cfg_raw.get("scenery", {}).get("fence_auto"):
         import bisect
         # "I really want fences, just regular fences in most places": right-of-way runs fill the
