@@ -1,7 +1,37 @@
 # Asset rollout plan — Dropbox /Blender drop (2026-07-23)
 
-The #17 final-polish pass implements this after Kevin validates rc9. Two files were still
-uploading when this was written — fold them in on arrival.
+The #17 final-polish pass implements this after Kevin validates rc9. Upload complete; every
+archive unpacked and inventoried (scratchpad/drop/x/ this session).
+
+## Unpacked findings (what's actually inside)
+
+- **`pine_tree.zip`** → `Small_Pine.blend` + `Bark.jpg`/`PinesLeaves.png`. Blend-only →
+  headless Blender OBJ export needed (we have vendored 4.2). One species; instance with
+  scale/rotation jitter for variety.
+- **`tree_topol.rar`** → `tree_topol.fbx` + `tree_poplar.glb` + full PBR texture set
+  (bark/branches, TexturesCom). FBX→OBJ via headless Blender.
+- **`wooden_fence_mt1.zip`** → THE fence standard: **5 modular OBJs** (`wood_fance_m0–m4_t1`,
+  112 KB total geometry!) + texture set. Lightweight, modular, instance-ready — exactly our
+  `instance_line` shape. The 215 MB is textures/renders.
+- **`Wooden_Fence_Geo_Piskas`** → `wooden_fence_with/without_proxy.obj` — second style (garden
+  picket); Sand Creek residential edges if wanted; otherwise spare.
+- **`Fence.FBX` + `Textures.rar`** → chain-link/site fence with full PBR (Fence01/02 sets) +
+  StopSign PBR sets matching `barrier_stopSign01/02.obj`. FBX→OBJ conversion.
+- **`Street_Lamp.zip`** → `Street_Lamp.blend` + full PBR **including `lamp_emiss.png` and
+  `lamp_opac.png`** — a real luminaire with an emissive map: replaces the mast-bridged lamp
+  outright; LAMPHEAD emissive comes from the actual texture instead of a material hack.
+- **`Urban_Props_Pack1.zip`** → 10 ready OBJs (small): bench, dustbin, billboard, electric
+  pole, mailbox, road barrier, street light (alt lamp), traffic cone, ATM; Bus Stop as
+  glb/blend. Blender-procedural materials → bake/replace with simple textures at conversion.
+- **`barriers_MA.rar`** → Maya `.mb` only — **unusable** without Maya. Spare.
+- **`textures.zip`** → a 3ds-MAX architecture texture library (roof tiles etc.) — reference
+  archive, no direct consumer.
+- **Concrete Barrier and Transition Barrier folders + `Barrier_end01/02` + `Barrier_circle` +
+  `Barrier02` + `Highway_OverheadSign` + stop-sign barriers** — OBJs ready to convert.
+
+**Conversion pipeline** (one headless Blender pass, vendored 4.2): blend/fbx/glb → OBJ →
+decimate where heavy → PoT textures → `assets/models/` + `assets/textures/` + pbr entries.
+`.mb` excluded.
 
 ## Inventory → placement
 
