@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -68,9 +68,10 @@
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
     "tree_step_m": 7.0,
-    "tree_cap": 40000,
+    "tree_cap": 80000,
     "fill_range_m": 220.0,
-    "fill_per_station": 6,
+    "fill_per_station": 10,
+    "_treefx_count_doc": "tree_cap 40000->80000 and fill_per_station 6->10 raised for the TreeFX pass: CSP 3D TreeFX is cheap, so the fill_terrain candidate field is denser (~54k candidates over the 220 m band) and the elevation keep-curve governs the final count instead of the cap (p_keep stays 1.0). This gives a real forest-worth on the heavily-wooded mountain while the base stays sparse. These knobs only affect the (disabled) billboard path when treefx is off; here treefx routes fill_terrain to the CSP list.",
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -127,7 +128,46 @@
       "_doc": "real 3D pines in the driver's corridor; billboards carry the slopes"
     },
     "fence_auto": false,
-    "fill_off_min_extra_m": 12.0
+    "fill_off_min_extra_m": 12.0,
+    "treefx": {
+      "enabled": true,
+      "seed": 20260724,
+      "grassfx": true,
+      "_doc": "CSP TreeFX 3D conifers + GrassFX (Mac-native, no kn5 bake). TWO zones route the two real forest sources build_env already places: 'forest' = the fill_terrain mass swept along the whole lap (elevation-graded — sparse at the Golden base, dense at the Buffalo Bill summit, Kevin's 'more trees the higher up'); 'forest3d' = the near-corridor 3D pines that carry their own per-tree scale + yaw. Species are referenced by .bin FILENAME only — the licensed MRS_/treePine models are user-supplied, dropped into the installed track's extension/trees/ (never committed; *.bin gitignored). Trunks stay off the corridor via the SAME on_road/clearance rejection the baked path used, and TreeFX trees are runtime-visual (not kn5 geometry) so they can never trip the obstruction gate. NOTE on the density block: elev_lo_m/elev_hi_m are LOCAL-frame metres (the frame ground_y() returns), not absolute ASL — this lap runs Y~0 on the low legs to ~500 at the summit; 'curve' is a numeric exponent (the emitter has no 'smoothstep' keyword) where 1.5 keeps the low slopes barer; 'aspect_favored' uses the emitter's compass labels N/E (moister slopes -> denser conifer). VERIFY IN-GAME: forest3d trees carry the corridor scale (2.2-4.2x, tuned for the old OBJ pine module) — retune scenery.forest3d.scale_* or drop a right-sized .bin if the real model's native size makes them read too tall.",
+      "zones": {
+        "forest": {
+          "source": "fill_terrain",
+          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin", "treePine1"],
+          "size_variance": [0.85, 1.2],
+          "angle_variance": [0, 360],
+          "density": {
+            "by": "elevation",
+            "elev_lo_m": 0.0,
+            "elev_hi_m": 500.0,
+            "keep_lo": 0.25,
+            "keep_hi": 0.95,
+            "curve": 1.5,
+            "aspect_bonus": 0.2,
+            "aspect_favored": ["N", "E"]
+          }
+        },
+        "forest3d": {
+          "source": "forest3d",
+          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin", "treePine1"],
+          "angle_variance": [0, 360],
+          "density": {
+            "by": "elevation",
+            "elev_lo_m": 0.0,
+            "elev_hi_m": 500.0,
+            "keep_lo": 0.5,
+            "keep_hi": 1.0,
+            "curve": 1.2,
+            "aspect_bonus": 0.15,
+            "aspect_favored": ["N", "E"]
+          }
+        }
+      }
+    }
   },
   "origin": "centroid",
   "surfaces": {
