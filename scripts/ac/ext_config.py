@@ -17,6 +17,7 @@ Run:  python -m scripts.ac.ext_config projects/<slug>
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -329,23 +330,78 @@ def generate(project_dir: str | Path) -> Path:
     cfg = ext / "ext_config.ini"
     cfg.write_text("\n".join(out) + "\n", encoding="utf-8")
 
-    # TreeFX text list + the license-clean "reference, don't bundle" README. The .bin MODELS are
-    # user-supplied and gitignored; a stale trees.txt from a previous treefx-on build is removed on a
-    # rebuild without TreeFX so the [TREES] block above (absent now) never dangles.
+    # TreeFX text list + the .bin MODELS. A stale trees.txt from a previous treefx-on build is removed
+    # on a rebuild without TreeFX so the [TREES] block above (absent now) never dangles.
+    #
+    # BUNDLING (scenery.treefx.bundle=true): these are PERSONAL, non-distributed builds, so we COPY the
+    # species .bin models straight from a gitignored per-track bundle dir (scenery.treefx.bundle_dir,
+    # default source/trees/) into extension/trees/ next to trees.txt — the packaged track has the forest
+    # baked in, no manual "drop the models in" step. The .bin files stay gitignored (never committed);
+    # they only ride along in the build output. With bundle off, we fall back to the reference-only
+    # manifest (models user-supplied). See docs/TREEFX-FORMAT.md.
+    _tfx_scn = (cfg_raw.get("scenery", {}) or {}).get("treefx", {}) or {}
+    _bundle = bool(_tfx_scn.get("bundle"))
+    _bundle_dir = project_dir / str(_tfx_scn.get("bundle_dir", "source/trees"))
     trees_dir = ext / "trees"
     if _tfx is not None:
         trees_dir.mkdir(parents=True, exist_ok=True)
         (trees_dir / "trees.txt").write_text(_tfx.trees_txt(), encoding="utf-8")
-        (trees_dir / "README").write_text(
-            _tfxmod.trees_readme(slug, _tfx.expected_species()), encoding="utf-8")
         _exp = _tfx.expected_species()
+        bundled, missing = [], []
+        if _bundle:
+            for sp in _exp:
+                src = _bundle_dir / sp
+                if src.exists():
+                    shutil.copy2(src, trees_dir / sp)
+                    bundled.append(sp)
+                else:
+                    missing.append(sp)
+            for _old in trees_dir.glob("*.bin"):          # prune models no longer referenced
+                if _old.name not in _exp:
+                    _old.unlink()
+        (trees_dir / "README").write_text(
+            _trees_readme(slug, _exp, bundled, missing, _bundle, _bundle_dir), encoding="utf-8")
         print(f"  [ext_config] TREES: {_tfx.total()} trees across {len(_tfx.zones)} zone(s) "
               f"-> extension/trees/trees.txt")
-        print(f"  [ext_config] TreeFX expects user-supplied .bin models in extension/trees/: "
-              f"{', '.join(_exp) if _exp else '(none)'}")
-    elif (trees_dir / "trees.txt").exists():
-        (trees_dir / "trees.txt").unlink()   # stale list from a prior treefx-on build
+        if _bundle:
+            print(f"  [ext_config] BUNDLED {len(bundled)} .bin model(s) into extension/trees/: "
+                  f"{', '.join(bundled) if bundled else '(none)'}")
+            if missing:
+                print(f"  [ext_config] WARNING missing from {_bundle_dir}/ (forest incomplete): "
+                      f"{', '.join(missing)}")
+        else:
+            print(f"  [ext_config] TreeFX expects user-supplied .bin models in extension/trees/: "
+                  f"{', '.join(_exp) if _exp else '(none)'}")
+    elif trees_dir.exists():
+        for _stale in list(trees_dir.glob("*.bin")) + [trees_dir / "trees.txt"]:
+            if _stale.exists():
+                _stale.unlink()                            # stale list/models from a prior treefx-on build
     return cfg
+
+
+def _trees_readme(slug, expected, bundled, missing, bundle_on, bundle_dir):
+    """extension/trees/README manifest. Bundling mode (personal builds) documents the models that
+    ride along IN this folder; reference mode falls back to the license-clean user-supplied note."""
+    if not bundle_on:
+        from scripts.environment import treefx as _tfxmod
+        return _tfxmod.trees_readme(slug, expected)
+    lines = [
+        f"{slug} — TreeFX models (BUNDLED — personal, non-distributed build)",
+        "=" * 60,
+        "",
+        "This track renders 3D trees via CSP TreeFX. Because these are PERSONAL builds (not shared),",
+        "the .bin tree MODELS are bundled straight into this folder next to trees.txt — the forest is",
+        "baked into the package, nothing to drop in. The .bin files stay gitignored (never committed);",
+        f"the build copies them from {bundle_dir} at pack time.",
+        "",
+        "Bundled .bin models in this folder:",
+    ]
+    lines += ([f"  - {sp}" for sp in bundled] or ["  (none)"])
+    if missing:
+        lines += ["", f"MISSING from {bundle_dir}/ (these species render nothing until added):"]
+        lines += [f"  - {sp}" for sp in missing]
+    lines += ["", "Format + GrassFX reference: docs/TREEFX-FORMAT.md", ""]
+    return "\n".join(lines)
 
 
 def main() -> None:

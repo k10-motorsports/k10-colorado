@@ -133,11 +133,13 @@
       "enabled": true,
       "seed": 20260724,
       "grassfx": true,
-      "_doc": "CSP TreeFX 3D conifers + GrassFX (Mac-native, no kn5 bake). TWO zones route the two real forest sources build_env already places: 'forest' = the fill_terrain mass swept along the whole lap (elevation-graded — sparse at the Golden base, dense at the Buffalo Bill summit, Kevin's 'more trees the higher up'); 'forest3d' = the near-corridor 3D pines that carry their own per-tree scale + yaw. Species are referenced by .bin FILENAME only — the licensed MRS_/treePine models are user-supplied, dropped into the installed track's extension/trees/ (never committed; *.bin gitignored). Trunks stay off the corridor via the SAME on_road/clearance rejection the baked path used, and TreeFX trees are runtime-visual (not kn5 geometry) so they can never trip the obstruction gate. NOTE on the density block: elev_lo_m/elev_hi_m are LOCAL-frame metres (the frame ground_y() returns), not absolute ASL — this lap runs Y~0 on the low legs to ~500 at the summit; 'curve' is a numeric exponent (the emitter has no 'smoothstep' keyword) where 1.5 keeps the low slopes barer; 'aspect_favored' uses the emitter's compass labels N/E (moister slopes -> denser conifer). VERIFY IN-GAME: forest3d trees carry the corridor scale (2.2-4.2x, tuned for the old OBJ pine module) — retune scenery.forest3d.scale_* or drop a right-sized .bin if the real model's native size makes them read too tall.",
+      "bundle": true,
+      "bundle_dir": "source/trees",
+      "_doc": "CSP TreeFX 3D conifers + GrassFX (Mac-native, no kn5 bake). TWO zones route the two real forest sources build_env already places: 'forest' = the fill_terrain mass swept along the whole lap (elevation-graded — sparse at the Golden base, dense at the Buffalo Bill summit, Kevin's 'more trees the higher up'); 'forest3d' = the near-corridor 3D pines that carry their own per-tree scale + yaw. BUNDLED (personal, non-distributed build): the 3 conifer .bin MODELS live gitignored in bundle_dir (source/trees/) and the pack step COPIES them into the build's extension/trees/ next to trees.txt, so the forest is baked into the package — no manual drop-in. The .bin files stay gitignored (never committed), they only ride along in the build output. (treePine1 dropped — it was a legacy .mesh, not a TreeFX .bin.) Trunks stay off the corridor via the SAME on_road/clearance rejection the baked path used, and TreeFX trees are runtime-visual (not kn5 geometry) so they can never trip the obstruction gate. NOTE on the density block: elev_lo_m/elev_hi_m are LOCAL-frame metres (the frame ground_y() returns), not absolute ASL — this lap runs Y~0 on the low legs to ~500 at the summit; 'curve' is a numeric exponent (the emitter has no 'smoothstep' keyword) where 1.5 keeps the low slopes barer; 'aspect_favored' uses the emitter's compass labels N/E (moister slopes -> denser conifer). VERIFY IN-GAME: forest3d trees carry the corridor scale (2.2-4.2x, tuned for the old OBJ pine module) — retune scenery.forest3d.scale_* if the real model's native size makes them read too tall.",
       "zones": {
         "forest": {
           "source": "fill_terrain",
-          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin", "treePine1"],
+          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin"],
           "size_variance": [0.85, 1.2],
           "angle_variance": [0, 360],
           "density": {
@@ -153,7 +155,7 @@
         },
         "forest3d": {
           "source": "forest3d",
-          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin", "treePine1"],
+          "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "MRS_Sapin_4_0_high.bin"],
           "angle_variance": [0, 360],
           "density": {
             "by": "elevation",
