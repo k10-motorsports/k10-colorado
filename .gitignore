@@ -17,6 +17,11 @@ tracks/*/build/
 *.mtl
 *.tif
 
+# TreeFX/GrassFX: third-party .bin tree MODELS are USER-SUPPLIED + licensed — NEVER commit them.
+# We only generate config that REFERENCES them by filename (extension/trees/trees.txt + [TREES]).
+# The user drops licensed models into the installed track's extension/trees/. See docs/TREEFX-FORMAT.md.
+*.bin
+
 # keep in git: tracks/*/track.config.json, tracks/*/source/**, tracks/*/data/centerline*.{geojson,json},
 # tracks/*/data/heightfield.* (real-elevation cache), and everything under scripts/ and blender/.
 
@@ -25,4 +30,6 @@ tracks/*/data/*.svg
 tracks/*/data/audit.json
 # conformed-ground heightfield, rebuilt by the mesh stage (like track.obj)
 tracks/*/data/ground.local.json
+# TreeFX sidecar (real tree placements), rebuilt by build_env; consumed by ext_config
+tracks/*/data/treefx.json
 .engine/

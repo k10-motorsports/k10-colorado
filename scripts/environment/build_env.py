@@ -641,6 +641,24 @@ def build(project_dir: str | Path) -> dict:
     # the edge of the road it hugs (its own offset of 1.5–2 m always clears this 0.3 m margin).
     on_surface = _corridor_rejecter(loop, widths, connector_lines, margin=0.3)
 
+    # --- TreeFX emission path (scenery.treefx.enabled): instead of baking billboard/OBJ tree meshes
+    #     into the kn5, record the SAME real positions (ground-sampled, pavement/clearance-rejected)
+    #     into a TreeFXCollector and emit a CSP text list. The baked-mesh path stays intact behind the
+    #     flag. Each foliage loop below asks _tfx.has_source(<its source>): a source with a config
+    #     zone routes there (no billboard built); a source with no zone plants nothing under TreeFX.
+    from scripts.environment import treefx as _tfxmod
+    _tfx_cfg = scn.get("treefx", {}) or {}
+    _tfx_on = bool(_tfx_cfg.get("enabled"))
+    _tfx = _tfxmod.TreeFXCollector(_tfx_cfg) if _tfx_on else None
+
+    def _aspect(x, z, d=6.0):
+        """Horizontal terrain ASPECT (the compass direction the slope faces downhill = negative
+        gradient) at (x, z), sampled from ground_y. Feeds the per-zone N/E density bonus; flat ground
+        returns ~(0, 0) -> no bonus. Convention: +X East, North = -Z (see docs/TREEFX-FORMAT.md)."""
+        dhx = ground_y(x + d, z) - ground_y(x - d, z)
+        dhz = ground_y(x, z + d) - ground_y(x, z - d)
+        return (-dhx, -dhz)
+
     # --- trees scattered in green/wetland polygons (capped) ---
     tree_meshes, ntrees = [], 0
     _tg = random.Random(55)
@@ -684,6 +702,12 @@ def build(project_dir: str | Path) -> dict:
                 x = min(xs) + ix * step + (iz % 2) * 9
                 z = min(zs) + iz * step
                 if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
+                    if _tfx_on:                                   # TreeFX: record position, no billboard
+                        if _tfx.has_source("poly_scatter") and \
+                                _tfx.add("poly_scatter", x, ground_y(x, z), z, rng=_tg,
+                                         aspect=_aspect(x, z)):
+                            ntrees += 1
+                        continue
                     h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
                     _sy9 = seat_y(x, z, h * t_wfrac / 2)
                     if _sy9 is None:
@@ -728,6 +752,12 @@ def build(project_dir: str | Path) -> dict:
                     rx, rz = x + nx * off * side, z + nz * off * side
                     if on_road(rx, rz):
                         continue
+                    if _tfx_on:                                   # TreeFX: elevation/aspect density
+                        if _tfx.has_source("fill_terrain") and \
+                                _tfx.add("fill_terrain", rx, ground_y(rx, rz), rz, rng=_tf,
+                                         aspect=_aspect(rx, rz)):
+                            ntrees += 1
+                        continue
                     h = 8.0 + _tf.random() * 8.0
                     _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
                     if _sy9 is None:
@@ -745,14 +775,15 @@ def build(project_dir: str | Path) -> dict:
     f3 = scn.get("forest3d") or {}
     if f3:
         _f3r = random.Random(77)
-        from scripts.environment import props as props_mod
-        _models3 = Path(__file__).resolve().parents[2] / "assets" / "models"
         _mods3 = []
-        if f3.get("module", "pine") == "pine":
-            _mods3 = [("PINETREE", props_mod.load_module(_models3 / "pine_tree.obj"))]
-        else:
-            _mods3 = [("POPLARLEAF", props_mod.load_module(_models3 / "poplar_leaves.obj")),
-                      ("POPLARBARK", props_mod.load_module(_models3 / "poplar_trunk.obj"))]
+        if not _tfx_on:   # TreeFX routes forest3d to the CSP list -> no OBJ modules to load/bake
+            from scripts.environment import props as props_mod
+            _models3 = Path(__file__).resolve().parents[2] / "assets" / "models"
+            if f3.get("module", "pine") == "pine":
+                _mods3 = [("PINETREE", props_mod.load_module(_models3 / "pine_tree.obj"))]
+            else:
+                _mods3 = [("POPLARLEAF", props_mod.load_module(_models3 / "poplar_leaves.obj")),
+                          ("POPLARBARK", props_mod.load_module(_models3 / "poplar_trunk.obj"))]
         for _nm3, _ in _mods3:
             forest3d_meshes[_nm3] = {"vertices": [], "uvs": [], "tris": []}
         # every-leg clearance hash: a tree placed off leg A can overhang leg B's lane where
@@ -809,6 +840,12 @@ def build(project_dir: str | Path) -> dict:
                 continue                                 # layer guard: never a tree from another leg
             if _too_close3(rx, rz, gy3, 2.2 * sc3 + 1.2):
                 continue                                 # canopy would reach SOME leg's lane
+            if _tfx_on:                                  # TreeFX: carry the per-tree scale + yaw
+                if _tfx.has_source("forest3d") and \
+                        _tfx.add("forest3d", rx, gy3, rz, rng=_f3r, size=sc3,
+                                 angle=math.degrees(ya3), aspect=_aspect(rx, rz)):
+                    _n3 += 1
+                continue
             for _nm3, _mod3 in _mods3:
                 M = forest3d_meshes[_nm3]
                 base3 = len(M["vertices"])
@@ -850,6 +887,12 @@ def build(project_dir: str | Path) -> dict:
                     if on_road(rx, rz):                     # the road crosses the creek (bridge) — keep off it
                         continue
                     if not near_track(rx, rz):              # stream nowhere near the lap — skip
+                        continue
+                    if _tfx_on:                             # TreeFX riparian band (dense near water)
+                        _cz = _tfx.zone_for("creek")
+                        if _cz is not None and (_cz.band_m is None or off <= _cz.band_m) and \
+                                _tfx.add("creek", rx, ground_y(rx, rz), rz, rng=_tr):
+                            nriver += 1
                         continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
                     # CHANNEL GUARD: a footprint straddling the carved creek channel has wildly
@@ -898,6 +941,11 @@ def build(project_dir: str | Path) -> dict:
             bx, bz = x + nx * off * side, z + nz * off * side
             if on_road(bx, bz):                     # reject where the throw lands on a fold-back/parallel road
                 continue
+            if _tfx_on:                             # TreeFX: route shrubs/palms if a 'bush' zone exists
+                if _tfx.has_source("bush") and \
+                        _tfx.add("bush", bx, ground_y(bx, bz), bz, rng=_r):
+                    nbush += 1
+                continue
             _sy9 = seat_y(bx, bz, 0.8)
             if _sy9 is None:
                 continue                          # cliff-lip: don't perch a prop half in air
@@ -907,6 +955,22 @@ def build(project_dir: str | Path) -> dict:
                                                NC, NR, sz * 0.78, sz, yaw=_r.random() * math.pi))
             nbush += 1
     bushes = _merge(bush_meshes)
+
+    # --- TreeFX sidecar (data/treefx.json): the real placements collected above, which ext_config
+    #     renders into extension/trees/trees.txt + the [TREES] block. Under scenery.treefx.enabled the
+    #     baked billboard/forest3d meshes above are empty (routed here instead); on a rebuild WITHOUT
+    #     TreeFX a stale sidecar is removed so ext_config emits no dangling [TREES]. Species are
+    #     referenced by .bin filename only — the licensed models stay user-supplied (never bundled).
+    if _tfx is not None:
+        _tfx.write_json(data / "treefx.json")
+        _exp = _tfx.expected_species()
+        print(f"  treefx: {_tfx.total()} trees across {len(_tfx.zones)} zone(s) -> data/treefx.json")
+        for _zn, _cnt in _tfx.counts().items():
+            print(f"          zone '{_zn}': {_cnt}")
+        print("          EXPECTS user-supplied .bin models (place in extension/trees/): "
+              + (", ".join(_exp) if _exp else "(none)"))
+    elif (data / "treefx.json").exists():
+        (data / "treefx.json").unlink()
 
     # --- prop modules (Kevin's pack): lamp post swap + ranch fences + pylon runs ---
     from scripts.environment import props as props_mod
