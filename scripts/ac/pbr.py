@@ -23,6 +23,11 @@ TEXTURES = {
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
     "1LAWN":   ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated suburban green turf (SoCal neighbourhood tiles)
     "1GRASS":  ("ground_dry_diffuse.jpg", None,              0.95, (0.42, 0.38, 0.29, 1), 0.0, False),  # dry dirt/chaparral (canyon/hill/freeway-cut tiles)
+    "SHOULDERUND": ("ground_dry_diffuse.jpg", None, 0.95, (0.36, 0.32, 0.25, 1), 0.0, False),  # embankment/cut mass seen from BELOW (visual underside of the shoulder strip)
+    "ROCKCUT":  ("rock_granite_red.png", None, 0.92, (0.45, 0.30, 0.24, 1), 0.0, False),  # blasted red granite cut faces (Kevin's stone-wall asset harvest) — task #17 consumer
+    "RETWALL":  ("stone_tan.png", None, 0.85, (0.55, 0.48, 0.38, 1), 0.0, False),           # retaining wall body — task #17 consumer
+    "1WALL_PARA": ("stone_tan.png", None, 0.85, (0.58, 0.51, 0.41, 1), 0.0, False),          # 1913 stone guard parapets (collidable; MUST precede the generic 1WALL entry — prefix match is dict-ordered)
+    "1WALL_CHAINL": ("chainlink_diffuse.png", None, 0.6, (0.55, 0.56, 0.58, 1), 0.3, False),  # chain-link warning fences (Kevin: 'use chain link, not wood') — before 1WALL, dict-ordered
     "BUSHES":  ("bushes_atlas.png", None, 0.9, (0.36, 0.37, 0.24, 1), 0.0, False),  # dry scrub billboards (LA Canyons bo_bushes_11)
     "HIGHWAY": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.30, 0.30, 0.32, 1), 0.0, False),  # I-70 deck
     "HWYSTRUCT": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete parapets/piers
@@ -32,9 +37,17 @@ TEXTURES = {
     "BRICK":   ("brick_diffuse.jpg",   "brick_normal.jpg",   0.90, (0.45, 0.28, 0.22, 1), 0.0, False),  # red brick (mined Hamburg) — building variety
     "STUCCO":  ("stucco_diffuse.jpg",  "stucco_normal.jpg",  0.88, (0.62, 0.32, 0.28, 1), 0.0, False),  # painted stucco (mined Hamburg) — building variety
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
+    "1WALL_WOODF": ("wood_fence.png", "wood_fence_normal.png", 0.9, (0.42, 0.33, 0.24, 1), 0.0, False),  # wooden warning fences (must precede 1WALL — dict-ordered prefix match)
     "1WALL":   ("concrete_barrier_diffuse.png", "concrete_barrier_normal.png", 0.85, (0.72, 0.72, 0.70, 1), 0.0, False),  # Kevin's 4 m concrete barrier modules (props.concrete_barriers)
     "FENCEWOOD": ("ranch_fence_diffuse.png", "ranch_fence_normal.png", 0.9, (0.45, 0.35, 0.25, 1), 0.0, False),  # split-rail ranch fence panels (scenery.fences, right-of-way line)
+    "WOODFENCE": ("wood_fence.png", "wood_fence_normal.png", 0.9, (0.42, 0.33, 0.24, 1), 0.0, False),  # Kevin's modular wooden fence (replaces most barriers off the driving surface)
+    "PINETREE": ("pine_leaves.png", None, 0.95, (0.15, 0.28, 0.14, 1), 0.0, False),   # 3D pine (near-corridor forest), alpha-cut
+    "POPLARLEAF": ("poplar_leaves.png", None, 0.95, (0.24, 0.34, 0.15, 1), 0.0, False),  # poplar canopy (SC creek riparian band)
+    "POPLARBARK": ("poplar_bark.png", None, 0.92, (0.42, 0.38, 0.32, 1), 0.0, False),
+    "LAMPNEW": ("street_lamp_new.png", None, 0.55, (0.30, 0.31, 0.33, 1), 0.25, False),  # purpose-modeled street lamp (emissive baked into diffuse, opacity in alpha)
     "EUROSIGN": ("eurosign_atlas.png", None, 0.5, (0.85, 0.85, 0.85, 1), 0.1, False),  # circular sign faces, alpha-cut (scenery.road_signs)
+    "USSIGN": ("mutcd_atlas.png", None, 0.5, (0.94, 0.70, 0.14, 1), 0.1, False),  # MUTCD yellow-diamond curve/hairpin warnings (Kevin: signage where turns irl are)
+    "DANGERLITE": ("solid_red_glow.png", None, 0.3, (1.0, 0.10, 0.06, 1), 0.0, False),  # danger boards at extreme straight-into-hairpin entries (flashing model TBD from Kevin)
     "CONTAINER": ("container_diffuse.jpg", "container_normal.jpg", 0.70, (0.55, 0.30, 0.26, 1), 0.0, False),  # mined Hamburg shipping-container stacks (warehouse yards)
     "CHAINLINK": ("chainlink_diffuse.png", None, 0.60, (0.55, 0.56, 0.58, 1), 0.30, False),  # procedural alpha-cutout chain-link (warehouse yard fences)
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
@@ -48,6 +61,7 @@ TEXTURES = {
     "CONIFER": ("conifer_atlas.png", None, 0.90, (0.09, 0.20, 0.09, 1), 0.0, False),  # pine/spruce billboards (mountain tracks, scenery.tree_style "conifer")
     "LIGHTS":  ("solid_lens_warm.png", None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),  # cobra-head lamp lens — SOLID TEXTURE (texture-less = renders BLACK); CSP adds ksEmissive at night
     "LIGHTPOST": ("solid_metal_dark.png", None, 0.60, (0.28, 0.29, 0.31, 1), 0.5, False),  # galvanized streetlight mast + arm — SOLID TEXTURE (was texture-less -> BLACK -> invisible posts, v0.7.5)
+    "LAMPHEAD": ("solid_metal_dark.png", None, 0.55, (0.32, 0.33, 0.35, 1), 0.3, False),  # luminaire housing — faint CSP night emissive so the lens reads attached
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
     "MOUNTAINS": (None, None, 0.95, (0.52, 0.57, 0.66, 1), 0.0, False),  # hazy blue Front Range backdrop (flat silhouette)
     "SIGNPOST": ("solid_metal_grey.png", None, 0.60, (0.45, 0.46, 0.48, 1), 0.0, False),      # grey metal posts — SOLID TEXTURE (texture-less renders black)
@@ -73,6 +87,8 @@ KS_PROPS = {
     "PALMS":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "FENCEWOOD": {"ksAmbient": 0.45, "ksDiffuse": 0.35, "ksSpecular": 0.05, "ksSpecularEXP": 8.0},
     "1GRASS":   {"ksAmbient": 0.50, "ksDiffuse": 0.22, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "POLE":     {"ksAmbient": 0.40, "ksDiffuse": 0.15, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "SIGNPOST": {"ksAmbient": 0.40, "ksDiffuse": 0.25, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
 }
 
 
@@ -102,11 +118,15 @@ def load_overrides(project_dir: str | Path) -> dict[str, dict]:
                     ent[k] = str(p)
             if ent:
                 out[str(mat).upper()] = ent
-    # 2) capture-level overrides (real-world textures) win over config
+    # 2) capture-level overrides (real-world textures) fill in ONLY where the config didn't
+    #    speak — an explicit track.config.json override is the human's word and wins (Kevin:
+    #    Sand Creek uses the Lariat's road/grass look, not the phone-captured pavement).
     cap = project_dir / "source" / "realworld_capture.json"
     if not cap.exists():
         return out
     for o in json.loads(cap.read_text()).get("texture_overrides", []):
+        if str(o.get("material", "")).upper() in out:
+            continue
         ent = {}
         if o.get("diffuse"):
             ent["diffuse"] = str(project_dir / o["diffuse"])

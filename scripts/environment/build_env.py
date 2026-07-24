@@ -530,7 +530,8 @@ def build(project_dir: str | Path) -> dict:
     # Run the SAME centerline pipeline as the shipped road (corner-round + mirror + bake the corkscrew
     # dip). Without this the scenery anchored to the raw loop — poles/signs/bridge floated ~2 m over the
     # dipped road through the corkscrew. dip_of feeds the terrain bowl below.
-    loop, dip_of, _bank_at, profile_active = finished_centerline(loop, cfg.raw, mirror_x=mirror_x)
+    loop, dip_of, _bank_at, profile_active = finished_centerline(loop, cfg.raw, mirror_x=mirror_x,
+                                                                 widths=widths)
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
@@ -549,15 +550,17 @@ def build(project_dir: str | Path) -> dict:
                                             _gl["nx"], _gl["ny"], _gl["y"])
 
         def ground_y(x, z):
-            """Conformed-ground height under a LOCAL (mirrored) x,z, bilinear on the shipped grass grid."""
+            """Conformed-ground height under a LOCAL (mirrored) x,z — TRIANGLE-exact on the shipped
+            grass grid, same (a,b,c)+(a,c,d) diagonal split grass_terrain renders. Bilinear here sat
+            up to ~1 m off the rendered triangle on steep corridor terrain and shipped hovering fences."""
             fi = (x - gx0) / gdx if gdx else 0.0
             fj = (z - gz0) / gdz if gdz else 0.0
-            i0 = max(0, min(gnx - 1, int(fi))); j0 = max(0, min(gny - 1, int(fj)))
-            i1 = min(gnx - 1, i0 + 1); j1 = min(gny - 1, j0 + 1)
-            ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
-            a = GY[j0][i0] * (1 - ti) + GY[j0][i1] * ti
-            b = GY[j1][i0] * (1 - ti) + GY[j1][i1] * ti
-            return a * (1 - tj) + b * tj
+            i0 = max(0, min(gnx - 2, int(fi))); j0 = max(0, min(gny - 2, int(fj)))
+            u = max(0.0, min(1.0, fi - i0)); v = max(0.0, min(1.0, fj - j0))
+            ya = GY[j0][i0]; yb = GY[j0][i0 + 1]; yc = GY[j0 + 1][i0 + 1]; yd = GY[j0 + 1][i0]
+            if u >= v:      # tri (a,b,c)
+                return ya + u * (yb - ya) + v * (yc - yb)
+            return ya + v * (yd - ya) + u * (yc - yd)   # tri (a,c,d)
 
         def y_at(lon, lat):
             return ground_y(sx * (lon - origin[0]) * m_lon, (lat - origin[1]) * m_lat)
@@ -659,7 +662,12 @@ def build(project_dir: str | Path) -> dict:
         A small extra sink hides the residual between-sample slope."""
         ring = [(0.0, 0.0)] + [(half * math.cos(k * math.pi / 4), half * math.sin(k * math.pi / 4))
                                for k in range(8)]
-        return min(ground_y(x + ox, z + oz) for ox, oz in ring) - 0.25
+        vals = [ground_y(x + ox, z + oz) for ox, oz in ring]
+        # cliff-lip guard: >0.95 m of relief inside the footprint means half the base hangs in air
+        # however we seat it (the finer terrain grid exposes these) — signal the caller to skip.
+        if max(vals) - min(vals) > 0.95:
+            return None
+        return min(vals) - 0.25
     # fill_terrain replaces the poly scatter wholesale: on a forest track the OSM wood polys cover the
     # same hillsides the corridor fill plants, and iterating polys first eats the whole tree cap in
     # OSM-poly order (forested climb, bald return leg). One scatter, one budget, even lap coverage.
@@ -677,7 +685,10 @@ def build(project_dir: str | Path) -> dict:
                 z = min(zs) + iz * step
                 if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
                     h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
-                    tree_meshes.append(_billboard_cell(x, seat_y(x, z, h * t_wfrac / 2), z,
+                    _sy9 = seat_y(x, z, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(x, _sy9, z,
                                                        _tg.randint(0, t_ac - 1), _tg.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tg.random() * math.pi))
                     ntrees += 1
@@ -711,16 +722,105 @@ def build(project_dir: str | Path) -> dict:
                 for _ in range(f_per):
                     if ntrees >= t_cap or _tf.random() > p_keep:
                         continue
-                    off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) + 2.0 \
+                    off = widths[i] / 2 + float(scn.get("corridor_margin_m", 3.0)) \
+                        + float(scn.get("fill_off_min_extra_m", 2.0)) \
                         + _tf.random() ** float(scn.get("fill_bias", 1.6)) * f_range
                     rx, rz = x + nx * off * side, z + nz * off * side
                     if on_road(rx, rz):
                         continue
                     h = 8.0 + _tf.random() * 8.0
-                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
+                    _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(rx, _sy9, rz,
                                                        _tf.randint(0, t_ac - 1), _tf.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tf.random() * math.pi))
                     ntrees += 1
+
+    # --- 3D FOREST (scenery.forest3d): real tree meshes in the corridor the driver reads.
+    #     Billboards carry the mass on the slopes; within ~off_max of the verge the trees are
+    #     actual geometry (Kevin: "a lot more trees... particularly the mountain track as it is
+    #     pretty forested irl"). Modules from the Dropbox asset drop, decimated to ~2-3k tris.
+    forest3d_meshes = {}
+    f3 = scn.get("forest3d") or {}
+    if f3:
+        _f3r = random.Random(77)
+        from scripts.environment import props as props_mod
+        _models3 = Path(__file__).resolve().parents[2] / "assets" / "models"
+        _mods3 = []
+        if f3.get("module", "pine") == "pine":
+            _mods3 = [("PINETREE", props_mod.load_module(_models3 / "pine_tree.obj"))]
+        else:
+            _mods3 = [("POPLARLEAF", props_mod.load_module(_models3 / "poplar_leaves.obj")),
+                      ("POPLARBARK", props_mod.load_module(_models3 / "poplar_trunk.obj"))]
+        for _nm3, _ in _mods3:
+            forest3d_meshes[_nm3] = {"vertices": [], "uvs": [], "tris": []}
+        # every-leg clearance hash: a tree placed off leg A can overhang leg B's lane where
+        # legs run close (25 obstructed stations at the switchback stacks). Reject positions
+        # whose canopy reaches ANY centerline within its own height layer.
+        _lh3 = {}
+        for _q3, _p3 in enumerate(loop):
+            _lh3.setdefault((int(_p3[0] // 24.0), int(_p3[2] // 24.0)), []).append(_q3)
+
+        def _too_close3(px, pz, py, reach):
+            ci, cj = int(px // 24.0), int(pz // 24.0)
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for _q3 in _lh3.get((ci + di, cj + dj), ()):
+                        lp = loop[_q3]
+                        if abs(lp[1] - py) > 25.0:
+                            continue
+                        if math.hypot(px - lp[0], pz - lp[2]) < widths[_q3] / 2 + reach:
+                            return True
+            return False
+
+        _sp3 = float(f3.get("spacing_m", 26.0))
+        _o0 = float(f3.get("off_min_m", 7.0)); _o1 = float(f3.get("off_max_m", 26.0))
+        _cap3 = int(f3.get("cap", 700))
+        _s0 = float(f3.get("scale_min", 2.2)); _s1 = float(f3.get("scale_max", 4.2))
+        _n3 = 0
+        _acc3 = 0.0
+        for i in range(1, len(loop)):
+            _acc3 += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+            if _acc3 < _sp3 or _n3 >= _cap3:
+                continue
+            _acc3 = 0.0
+            x, y, z = loop[i]
+            a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
+            tx, tz = b[0] - a[0], b[2] - a[2]
+            tl = math.hypot(tx, tz) or 1e-6
+            nx, nz = -tz / tl, tx / tl
+            side = 1.0 if (i // 7) % 2 == 0 else -1.0    # alternating, deterministic
+            sc3 = _s0 + _f3r.random() * (_s1 - _s0)
+            # canopy-aware clearance: a x4-scaled pine's canopy is ~9 m wide — the trunk must
+            # stand canopy_half further out or branches overhang the lane (drive obstructions
+            # at the flared corners). 2.2 = the module's canopy half-width at scale 1.
+            off = widths[i] / 2 + _o0 + 2.2 * sc3 + _f3r.random() * (_o1 - _o0)
+            rx, rz = x + nx * off * side, z + nz * off * side
+            if on_road(rx, rz):
+                continue
+            gy3 = seat_y(rx, rz, 1.2)
+            if gy3 is None:
+                continue
+            gy3 += 0.15                                 # seat_y sinks 0.25 for billboards; trees want less
+            ya3 = _f3r.random() * math.pi * 2
+            _cy, _sy = math.cos(ya3), math.sin(ya3)
+            if abs(y - gy3) > 25.0:
+                continue                                 # layer guard: never a tree from another leg
+            if _too_close3(rx, rz, gy3, 2.2 * sc3 + 1.2):
+                continue                                 # canopy would reach SOME leg's lane
+            for _nm3, _mod3 in _mods3:
+                M = forest3d_meshes[_nm3]
+                base3 = len(M["vertices"])
+                for mx, my, mz in _mod3["vertices"]:
+                    wx = mx * sc3 * _cy - mz * sc3 * _sy
+                    wz = mx * sc3 * _sy + mz * sc3 * _cy
+                    M["vertices"].append((rx + wx, gy3 + my * sc3, rz + wz))
+                M["uvs"].extend(_mod3["uvs"])
+                M["tris"].extend((a3 + base3, b3_ + base3, c3 + base3) for a3, b3_, c3 in _mod3["tris"])
+            _n3 += 1
+        print(f"  forest3d: {_n3} {f3.get('module', 'pine')} instances "
+              f"({sum(len(m['vertices']) for m in forest3d_meshes.values())} verts)")
 
     # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
     # Gated to waterways NEAR the lap: the zones bbox carries every stream in the region (Clear Creek
@@ -752,7 +852,19 @@ def build(project_dir: str | Path) -> dict:
                     if not near_track(rx, rz):              # stream nowhere near the lap — skip
                         continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
-                    tree_meshes.append(_billboard_cell(rx, seat_y(rx, rz, h * t_wfrac / 2), rz,
+                    # CHANNEL GUARD: a footprint straddling the carved creek channel has wildly
+                    # different ground across its ring — seating on the ring-min hangs the tree off
+                    # the bank lip (17 cottonwoods shipped 15 m over the Sand Creek channel). A bank
+                    # this steep is water's edge, not tree ground: skip.
+                    _half_g = h * t_wfrac / 2
+                    _ring_g = [ground_y(rx + _half_g * math.cos(k * math.pi / 4),
+                                        rz + _half_g * math.sin(k * math.pi / 4)) for k in range(8)]
+                    if max(_ring_g) - min(_ring_g) > 4.0:
+                        continue
+                    _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
+                    if _sy9 is None:
+                        continue
+                    tree_meshes.append(_billboard_cell(rx, _sy9, rz,
                                                        _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
                                                        t_ac, t_ar, h, h * t_wfrac, yaw=_tr.random() * math.pi))
                     nriver += 1
@@ -786,7 +898,10 @@ def build(project_dir: str | Path) -> dict:
             bx, bz = x + nx * off * side, z + nz * off * side
             if on_road(bx, bz):                     # reject where the throw lands on a fold-back/parallel road
                 continue
-            by = seat_y(bx, bz, 0.8) - 0.4          # footprint-min ground - sink (no corner hangs on a cut face)
+            _sy9 = seat_y(bx, bz, 0.8)
+            if _sy9 is None:
+                continue                          # cliff-lip: don't perch a prop half in air
+            by = _sy9 - 0.4          # footprint-min ground - sink (no corner hangs on a cut face)
             sz = b_sz_min + _r.random() * b_sz_span
             bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
                                                NC, NR, sz * 0.78, sz, yaw=_r.random() * math.pi))
@@ -798,16 +913,83 @@ def build(project_dir: str | Path) -> dict:
     _models = Path(__file__).resolve().parents[2] / "assets" / "models"
     _lamp_module = None
     _lens_module = None
-    if (_models / "lamp_post.obj").exists() and scn.get("lamp_model", True):
-        _lamp_module = props_mod.load_module(_models / "lamp_post.obj")
+    _lamp_fixture = (0.0, 9.75, 0.0)   # (module-x, height, module-z) of the emitter
+    _lamp_obj = scn.get("lamp_model") if isinstance(scn.get("lamp_model"), str) else "lamp_post.obj"
+    if (_models / _lamp_obj).exists() and scn.get("lamp_model", True):
+        _lamp_module = props_mod.load_module(_models / _lamp_obj)
+        # MOUNTING HEIGHT (Kevin: "they might be too tall"): the model is a 10.5 m highway mast;
+        # real urban/collector streets run 8-9 m. Vertical scale only — arm reach/thickness stay.
+        _lamp_h = float(scn.get("lamp_height_m", 9.0))
+        _native_h = max(v[1] for v in _lamp_module["vertices"]) or 1.0
+        if abs(_lamp_h - _native_h) > 0.05:
+            _sc9 = _lamp_h / _native_h
+            _lamp_module["vertices"] = [(x, y * _sc9, z) for x, y, z in _lamp_module["vertices"]]
         if (_models / "lamp_lens.obj").exists():
             _lens_module = props_mod.load_module(_models / "lamp_lens.obj")
+        # THE STYLE INDICATES the emitter position: centroid of the model's top-metre verts.
+        # A post-top luminaire yields (~0, top, ~0) — emitter INSIDE the head atop the mast; an
+        # arm style yields the arm tip. The old hardcoded (+1.2 m, 9.75) floated the glowing lens
+        # BESIDE this model's actual fixture.
+        # split the model at the neck: the HEAD SHELL becomes its own mesh (LAMPHEAD) with a faint
+        # night emissive — a glowing lens inside a pitch-black housing reads as a detached orb
+        # ("Floating. Floating. Floating."); a softly lit housing reads as a streetlight.
+        def _split_module(mod, cut_y):
+            lo = {"vertices": [], "uvs": [], "tris": []}
+            hi = {"vertices": [], "uvs": [], "tris": []}
+            lo_map, hi_map = {}, {}
+            for t in mod["tris"]:
+                dest, dmap = (hi, hi_map) if all(mod["vertices"][v][1] > cut_y for v in t) else (lo, lo_map)
+                nt = []
+                for v in t:
+                    j = dmap.get(v)
+                    if j is None:
+                        j = dmap[v] = len(dest["vertices"])
+                        dest["vertices"].append(mod["vertices"][v])
+                        dest["uvs"].append(mod["uvs"][v])
+                    nt.append(j)
+                dest["tris"].append(tuple(nt))
+            return lo, hi
+        _lamp_shaft_mod, _lamp_head_mod = _split_module(_lamp_module, 0.78 * _lamp_h)
+        # the WHOLE head (luminaire base ~7.4 m after the 9 m scale) goes to LAMPHEAD, and the
+        # head is DOUBLE-SIDED: the model's shell normals face inward on part of the housing, so
+        # single-sided culling erased the top from most angles ("pole tops are still invisible").
+        _lamp_head_mod["tris"] = _lamp_head_mod["tris"] + [(c, b, a) for a, b, c in _lamp_head_mod["tris"]]
+        # THE MISSING MAST (Kevin, three times: "top half invisible", "half a light pole",
+        # "floating orb 12 feet above"): the OBJ literally contains a pedestal (0-2 m), a collar
+        # at 5 m and the head (9-11 m) — the mast was never exported as faces. Bridge it with a
+        # procedural 12-sided tapered cylinder so the head finally connects to the ground.
+        _ys0 = [v[1] for v in _lamp_module["vertices"]]
+        _ped_top = max((y for y in _ys0 if y < 3.0), default=0.0)
+        _head_bot = min((y for y in _ys0 if y > 6.0), default=max(_ys0))
+        if _head_bot - _ped_top > 2.0:
+            import math as _mm
+            _mv = _lamp_module["vertices"]; _mu = _lamp_module["uvs"]; _mt = _lamp_module["tris"]
+            _base_i = len(_mv)
+            _NS = 12
+            for _lvl, (_yy, _rr) in enumerate(((_ped_top - 0.05, 0.11), (_head_bot + 0.10, 0.075))):
+                for _k7 in range(_NS):
+                    _a7 = 2 * _mm.pi * _k7 / _NS
+                    _mv.append((_rr * _mm.cos(_a7), _yy, _rr * _mm.sin(_a7)))
+                    _mu.append((_k7 / _NS, float(_lvl)))
+            for _k7 in range(_NS):
+                _n7 = (_k7 + 1) % _NS
+                _b0 = _base_i + _k7; _b1 = _base_i + _n7
+                _t0 = _base_i + _NS + _k7; _t1 = _base_i + _NS + _n7
+                _mt.append((_b0, _t0, _t1)); _mt.append((_b0, _t1, _b1))
+            print(f"  lamp mast bridged: {_ped_top:.1f} -> {_head_bot:.1f} m (the OBJ never had one)")
+        _top_y = max(v[1] for v in _lamp_module["vertices"])
+        _top = [v for v in _lamp_module["vertices"] if v[1] > _top_y - 1.0]
+        _lamp_fixture = (sum(v[0] for v in _top) / len(_top),
+                         sum(v[1] for v in _top) / len(_top) - 0.15,
+                         sum(v[2] for v in _top) / len(_top))
+        print(f"  lamp fixture (from model style): x {_lamp_fixture[0]:+.2f}  "
+              f"h {_lamp_fixture[1]:.2f}  z {_lamp_fixture[2]:+.2f}")
     fences_cfg = scn.get("fences", [])
     ranch_fences = {"vertices": [], "uvs": [], "tris": []}
     if fences_cfg and (_models / "ranch_fence_panel.obj").exists():
         _fmod = props_mod.load_module(_models / "ranch_fence_panel.obj")
         ranch_fences = props_mod.instance_line(loop, _fmod, ranges=fences_cfg, widths_m=widths,
-                                               ground=ground_y, module_len=1.72)
+                                               ground=ground_y, module_len=2.02)
         print(f"  ranch fences: {len(ranch_fences['vertices'])} verts over {len(fences_cfg)} ranges")
     pylons_cfg = scn.get("pylons", [])
     pylon_line = {"vertices": [], "uvs": [], "tris": []}
@@ -846,17 +1028,49 @@ def build(project_dir: str | Path) -> dict:
             sign_posts2.setdefault("uvs", []).extend([(0.0, 0.0)] * 8)
         from scripts.geometry import kerbs as _kerbs
         _bar, _spots = _kerbs.warning_barriers(loop, widths)
-        for _sp in _spots:
-            i2 = max(1, _sp["start_idx"] - 8)
-            x2, _, z2 = loop[i2]
-            a2, b3 = loop[i2 - 1], loop[min(len(loop) - 1, i2 + 1)]
+        # BOTH DIRECTIONS (Kevin drives the reverse layout too): detect corners on the reversed
+        # lap and place its warnings as well — positions are world-space, so the same placement
+        # code runs on the reversed arrays and everything lands facing the reverse traffic.
+        _bar_r, _spots_r = _kerbs.warning_barriers(loop[::-1], widths[::-1])
+        _sst0 = [0.0]
+        for _q2 in range(1, len(loop)):
+            _sst0.append(_sst0[-1] + math.hypot(loop[_q2][0] - loop[_q2 - 1][0],
+                                                loop[_q2][2] - loop[_q2 - 1][2]))
+        _placed_signs = []
+        for _loopD, _widthsD, _spotsD in ((loop, widths, _spots),
+                                          (loop[::-1], widths[::-1], _spots_r)):
+          for _sp in _spotsD:
+            # TRIAGE (Kevin: "too many warning signs"): only corners that earn one (>= 60 deg),
+            # and never two signs within 150 m of each other in the same direction.
+            if abs(_sp.get("turn_deg", 0)) < 60:
+                continue
+            # TRACK convention, not road convention (Kevin): the warning stands WHERE THE DANGER
+            # IS — at the corner apex on the OUTSIDE of the turn (the barrier line), the arrow
+            # facing the approaching driver. Like chevron boards on a race circuit.
+            _apx = min(_sp.get("apex_idx", _sp["start_idx"]), len(_loopD) - 2)
+            i2 = max(1, _apx)
+            x2, _, z2 = _loopD[i2]
+            # face along the APPROACH tangent (a few stations before the apex), not the apex's own
+            ia2 = max(1, i2 - 6)
+            a2, b3 = _loopD[ia2 - 1], _loopD[min(len(_loopD) - 1, ia2 + 1)]
             tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
             L2 = math.hypot(tx2, tz2) or 1e-9
             tx2, tz2 = tx2 / L2, tz2 / L2
-            nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
-            sx3, sz3 = x2 + nx2 * (widths[i2] / 2 + 2.2), z2 + nz2 * (widths[i2] / 2 + 2.2)
+            _outside = -float(_sp["side"])          # FLIPPED (Kevin: "wrong side usually") —
+                                                    # the mirror inverts the outward convention
+            nx2, nz2 = -tz2 * _outside, tx2 * _outside
+            _soff = max(_widthsD[i2] / 2 + 2.8, 6.8)   # clear of the 6.3 m obstruction corridor
+            sx3, sz3 = x2 + nx2 * _soff, z2 + nz2 * _soff
+            if any((sx3 - qx) ** 2 + (sz3 - qz) ** 2 < 150.0 ** 2 and _dD == _dirD
+                   for qx, qz, _dD in _placed_signs for _dirD in [id(_spotsD)]):
+                continue
+            _placed_signs.append((sx3, sz3, id(_spotsD)))
             if not on_surface(sx3, sz3):    # verge furniture: tight on-pavement test, not the 4 m foliage margin
-                _euro_sign(sx3, sz3, 2, -tx2, -tz2)          # sharp-turn arrow faces traffic
+                # MUTCD atlas cell by direction + severity: 0/1 curve L/R, 2/3 hairpin L/R
+                _tdeg = float(_sp.get("turn_deg", 60.0))
+                _left = _tdeg > 0
+                _face = (2 if _left else 3) if abs(_tdeg) >= 100.0 else (0 if _left else 1)
+                _euro_sign(sx3, sz3, _face, -tx2, -tz2)      # warning diamond faces traffic
         _sst = [0.0]
         for i2 in range(1, len(loop)):
             _sst.append(_sst[-1] + math.hypot(loop[i2][0] - loop[i2 - 1][0], loop[i2][2] - loop[i2 - 1][2]))
@@ -870,12 +1084,52 @@ def build(project_dir: str | Path) -> dict:
             sx3, sz3 = x2 - tz2 * -(widths[i2] / 2 + 2.2), z2 + tx2 * -(widths[i2] / 2 + 2.2)
             if not on_surface(sx3, sz3):
                 _euro_sign(sx3, sz3, int(sp2.get("face", 0)), -tx2, -tz2)
-        print(f"  euro signs: {len(sign_plates['vertices']) // 4} placed")
+        # DANGER BOARDS at the extreme entries (long straight into a hairpin): a red light-grid
+        # board on posts, 60 m before the corner. Static bright-red emissive for now — swaps to
+        # Kevin's flashing-light model when it lands (CSP animation then).
+        danger_boards = {"vertices": [], "uvs": [], "tris": []}
+        _nboards = 0
+        for _loopD, _widthsD, _spotsD in ((loop, widths, _spots),
+                                          (loop[::-1], widths[::-1], _spots_r)):
+          for _sp in _spotsD:
+            if abs(_sp.get("turn_deg", 0)) < 90:
+                continue
+            i2 = max(1, _sp["start_idx"] - 20)
+            x2, _, z2 = _loopD[i2]
+            a2, b3 = _loopD[i2 - 1], _loopD[min(len(_loopD) - 1, i2 + 1)]
+            tx2, tz2 = b3[0] - a2[0], b3[2] - a2[2]
+            L2 = math.hypot(tx2, tz2) or 1e-9
+            tx2, tz2 = tx2 / L2, tz2 / L2
+            nx2, nz2 = -tz2 * _sp["side"], tx2 * _sp["side"]
+            bx2, bz2 = x2 + nx2 * (_widthsD[i2] / 2 + 2.6), z2 + nz2 * (_widthsD[i2] / 2 + 2.6)
+            if on_surface(bx2, bz2):
+                continue
+            gyb = ground_y(bx2, bz2)
+            V, U, T = danger_boards["vertices"], danger_boards["uvs"], danger_boards["tris"]
+            bb = len(V)
+            px2, pz2 = -tz2, tx2
+            for sx2, sy2 in ((-1.2, 1.6), (1.2, 1.6), (1.2, 2.8), (-1.2, 2.8)):
+                V.append((bx2 + px2 * sx2, gyb + sy2, bz2 + pz2 * sx2))
+                U.append(((sx2 + 1.2) / 2.4, (sy2 - 1.6) / 1.2))
+            T.extend([(bb, bb + 1, bb + 2), (bb, bb + 2, bb + 3),
+                      (bb, bb + 2, bb + 1), (bb, bb + 3, bb + 2)])
+            for _px in (-1.0, 1.0):
+                pb = len(V)
+                for dx2, dz2 in ((-0.05, -0.05), (0.05, -0.05), (0.05, 0.05), (-0.05, 0.05)):
+                    V.append((bx2 + px2 * _px + dx2, gyb, bz2 + pz2 * _px + dz2))
+                    V.append((bx2 + px2 * _px + dx2, gyb + 1.7, bz2 + pz2 * _px + dz2))
+                    U.extend([(0.5, 0.5)] * 2)
+                for k2 in range(4):
+                    a3, b4 = 2 * k2, 2 * ((k2 + 1) % 4)
+                    T.extend([(pb + a3, pb + b4, pb + b4 + 1), (pb + a3, pb + b4 + 1, pb + a3 + 1)])
+            _nboards += 1
+        print(f"  euro signs: {len(sign_plates['vertices']) // 4} placed; danger boards: {_nboards}")
 
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     # Split geometry: the mast (LIGHTPOST, dark) and the lamp head (LIGHTS, emissive) are separate meshes
     # so only the head glows at night — not the whole 9 m stick (the old single-quad LIGHTS defect).
-    lightpost_meshes, lighthead_meshes, nlights = [], [], 0
+    lightpost_meshes, lighthead_meshes, headshell_meshes, nlights = [], [], [], 0
+    lamp_xz: list[tuple[float, float]] = []   # pole-collision avoidance for the powerline pass
     l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
     for i in range(1, len(loop)) if l_spacing > 0 else ():   # <=0 disables (mountain roads are unlit)
@@ -887,6 +1141,11 @@ def build(project_dir: str | Path) -> dict:
             tx, tz = b[0] - a[0], b[2] - a[2]
             tl = math.hypot(tx, tz) or 1e-6
             nx, nz = -tz / tl, tx / tl
+            # ALTERNATE SIDES (Kevin): staggered left/right like a real two-lane — halves the
+            # per-side density and reads correctly at night. Flipping the normal flips the whole
+            # module frame, so the arm/fixture still faces the road from either verge.
+            if nlights % 2:
+                nx, nz = -nx, -nz
             off = widths[i] / 2 + 2.0
             px, pz = x - nx * off, z - nz * off
             if on_surface(px, pz):                     # verge offset landed on a crossing/fold-back road — skip
@@ -911,15 +1170,22 @@ def build(project_dir: str | Path) -> dict:
                 # BOX is gone ("flooring boxes") — replaced by a 2 cm marker tri INSIDE the model's
                 # head: invisible in game, but the CSP per-lamp lights still cluster from the LIGHTS
                 # mesh in the kn5, so the glow comes from the pole itself with no frame math.
-                base2 = {"vertices": [], "uvs": [], "tris": []}
                 tl2 = math.hypot(nx, nz) or 1e-9
                 txl, tzl = nz / tl2, -nx / tl2
-                for mx, my, mz in _lamp_module["vertices"]:
-                    base2["vertices"].append((px + txl * mz + nx * mx, gy_pole + my, pz + tzl * mz + nz * mx))
-                base2["uvs"] = list(_lamp_module["uvs"])
-                base2["tris"] = list(_lamp_module["tris"])
-                shaft = base2
-                hx2, hy2, hz2 = px + nx * 1.2, gy_pole + 9.75, pz + nz * 1.2
+
+                def _inst(mod):
+                    out2 = {"vertices": [(px + txl * mz + nx * mx, gy_pole + my, pz + tzl * mz + nz * mx)
+                                         for mx, my, mz in mod["vertices"]],
+                            "uvs": list(mod["uvs"]), "tris": list(mod["tris"])}
+                    return out2
+                shaft = _inst(_lamp_shaft_mod)
+                headshell_meshes.append(_inst(_lamp_head_mod))
+                _fx, _fy, _fz = _lamp_fixture
+                _tl3 = math.hypot(nx, nz) or 1e-9
+                _txl3, _tzl3 = nz / _tl3, -nx / _tl3
+                hx2 = px + _txl3 * _fz + nx * _fx
+                hy2 = gy_pole + _fy
+                hz2 = pz + _tzl3 * _fz + nz * _fx
                 if _lens_module is not None:
                     # the model's own glass lens: glows (LIGHTS_mat ksEmissive) at ANY distance even
                     # when CSP culls the dynamic light — why "the lights aren't all on at once" read
@@ -932,9 +1198,11 @@ def build(project_dir: str | Path) -> dict:
                                 "uvs": [(0, 0), (1, 0), (0, 1)], "tris": [(0, 1, 2)]}
             lightpost_meshes.append(shaft)
             lighthead_meshes.append(lamphead)
+            lamp_xz.append((px, pz))
             nlights += 1
     lightposts = _merge(lightpost_meshes)
     lightheads = _merge(lighthead_meshes)
+    headshells = _merge(headshell_meshes)
 
     # --- overhead power lines (poles + sagging cables) — ubiquitous in industrial Commerce City; the
     #     real-world capture shows them in nearly every frame. Poles on the LEFT verge (streetlights are
@@ -955,6 +1223,11 @@ def build(project_dir: str | Path) -> dict:
         nx, nz = -tz, tx
         off = widths[i] / 2 + 3.5                      # left verge, just beyond the streetlight line
         bx, bz = x + nx * off, z + nz * off
+        # a wood pole within a lamp's immediate throw gets torched into a glowing yellow mast
+        # (Sand Creek's "lightsaber" — side-alternation put every other lamp on the pole verge).
+        # Real utilities co-locate or skip; we skip.
+        if any((bx - lx2) ** 2 + (bz - lz2) ** 2 < 49.0 for lx2, lz2 in lamp_xz):
+            continue
         if on_surface(bx, bz):                         # base would sit on a crossing/fold-back road — skip the
             continue                                   # pole (the wire then spans to the next kept pole, i.e. an
                                                        # overhead crossing — realistic, and wires are visual-only)
@@ -1093,7 +1366,7 @@ def build(project_dir: str | Path) -> dict:
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes,
                    ranch_fences, pylon_line, sign_plates, sign_posts2,
-                   lightposts, lightheads,
+                   lightposts, lightheads, headshells,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -1111,6 +1384,7 @@ def build(project_dir: str | Path) -> dict:
                *split_mesh_under_cap("BUSHES", "grass", bushes),
                *split_mesh_under_cap("LIGHTPOST", "road", lightposts),
                *split_mesh_under_cap("LIGHTS", "road", lightheads),
+               *split_mesh_under_cap("LAMPHEAD", "road", headshells),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
@@ -1118,7 +1392,10 @@ def build(project_dir: str | Path) -> dict:
                # fences/pylons/euro-signs shipped as nothing). Keep them in this list forever.
                *split_mesh_under_cap("FENCEWOOD", "road", ranch_fences),
                *split_mesh_under_cap("GANTRY_pylons", "road", pylon_line),
-               ("EUROSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
+               ("USSIGN", "road", sign_plates), ("SIGNPOST_euro", "road", sign_posts2),
+               ("DANGERLITE_boards", "road", danger_boards if rs_cfg.get("enabled") else {"vertices": [], "uvs": [], "tris": []}),
+               *[g for nm3, m3 in (forest3d_meshes.items() if f3 else [])
+                 for g in split_mesh_under_cap(nm3, "grass", m3)],
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])

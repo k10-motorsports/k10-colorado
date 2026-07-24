@@ -182,9 +182,32 @@ def generate(project_dir: str | Path) -> Path:
                         f"SPOT = {sl_spot}", f"SPOT_SHARPNESS = {sl_sharp}",
                         f"RANGE = {sl_r}", f"RANGE_GRADIENT_OFFSET = {sl_grad}",
                         f"SPECULAR_MULT = {sl_spec}",
-                        "FADE_AT = 450", "FADE_SMOOTH = 80",
+                        "FADE_AT = 1200", "FADE_SMOOTH = 200",
                         "CONDITION = NIGHT_SMOOTH", ""]
             print(f"  [ext_config] {len(heads)} per-lamp [LIGHT_N] entries clustered from the kn5")
+            # --- DANGER LIGHTS: real red light sources at every warning board, FLASHING, and
+            #     visible from far (Kevin: "just red boxes not lights at all... flashing
+            #     preferably"). Clustered from the kn5 like the lamps. Alternating two-phase
+            #     flash via CSP's flashing keys; if a runtime lacks them the light stays solid.
+            dpts = [v for m in _meshes if m["name"].upper().startswith("DANGERLITE") for v in m["P"]]
+            dbuckets: dict[tuple[int, int], list] = {}
+            for x, y, z in dpts:
+                dbuckets.setdefault((int(x // 6), int(z // 6)), []).append((x, y, z))
+            dboards = [tuple(sum(c) / len(vs) for c in zip(*vs)) for vs in dbuckets.values()]
+            for j, (dx, dy, dz) in enumerate(sorted(dboards)):
+                out += [f"[LIGHT_DANGER_{j}]", "ACTIVE = 1",
+                        f"POSITION = {dx:.2f}, {dy + 0.4:.2f}, {dz:.2f}",
+                        "DIRECTION = 0, -0.3, 0",
+                        "COLOR = 255, 24, 16, 14",              # hot red, strong
+                        "COLOR_OFF = 0, 0, 0, 0",
+                        "RANGE = 34", "RANGE_GRADIENT_OFFSET = 0.25",
+                        "SPECULAR_MULT = 0.4",
+                        "FADE_AT = 3000", "FADE_SMOOTH = 400",  # readable from the far straight
+                        "FLASHING_PERIOD = 0.8",                # CSP blink keys (no-op if absent)
+                        f"FLASHING_SKIP = {0.5 if j % 2 else 0.0}",
+                        ""]
+            if dboards:
+                print(f"  [ext_config] {len(dboards)} flashing danger lights clustered from the kn5")
         else:
             out += ["[LIGHT_SERIES_STREETLIGHTS]", "MESHES = LIGHTS", "OFFSET = 0, -0.1, 0",
                     f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i}", "COLOR_OFF = 0, 0, 0, 0",
@@ -206,6 +229,31 @@ def generate(project_dir: str | Path) -> Path:
             out += ["[MATERIAL_ADJUSTMENT_GRASS_NIGHT]",
                     f"MATERIALS = {grass_mats2}",
                     "KEY_0 = ksDiffuse", "VALUE_0 = 0.14", "VALUE_0_OFF = 0.22",
+                    "CONDITION = NIGHT_SMOOTH", ""]
+        head_mats = ", ".join(f"{g}_mat" for g in groups if g.upper().startswith("LAMPHEAD"))
+        if head_mats:
+            _ussign = [g for g in groups if g.upper().startswith("USSIGN")]
+            if _ussign:
+                out += ["[MATERIAL_ADJUSTMENT_USSIGNS]",
+                        "ACTIVE = 1",
+                        "MATERIALS = " + ", ".join(f"{g}_mat" for g in _ussign),
+                        "CONDITION = NIGHT_SMOOTH",
+                        "KEY_0 = ksEmissive",
+                        "VALUE_0 = 5.5, 4.6, 1.6",    # retroreflective sheeting POPS at night (Kevin: not lit)
+                        ""]
+            _danger = [g for g in groups if g.upper().startswith("DANGERLITE")]
+            if _danger:
+                out += ["[MATERIAL_ADJUSTMENT_DANGER]",
+                        "ACTIVE = 1",
+                        "MATERIALS = " + ", ".join(f"{g}_mat" for g in _danger),
+                        "KEY_0 = ksEmissive",
+                        "VALUE_0 = 80, 1.1, 0.85",    # hot red, blooms at distance
+                        ""]
+            out += ["[MATERIAL_ADJUSTMENT_LAMPHEADS]",
+                    f"MATERIALS = {head_mats}",
+                    "KEY_0 = ksEmissive",
+                    "VALUE_0 = 90, 82, 66, 0.10   ; faintly lit luminaire housing — the lens reads ATTACHED",
+                    "VALUE_0_OFF = 0, 0, 0, 0",
                     "CONDITION = NIGHT_SMOOTH", ""]
         lights_mats = ", ".join(f"{g}_mat" for g in lights_groups) or "LIGHTS_mat"
         out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",

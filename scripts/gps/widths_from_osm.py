@@ -74,7 +74,7 @@ def fetch_ways(bbox: tuple[float, float, float, float]) -> list[dict]:
         if el.get("type") != "way" or "geometry" not in el:
             continue
         t = el.get("tags", {})
-        ways.append({"id": el["id"], "name": t.get("name"), "highway": t.get("highway"),
+        ways.append({"id": el["id"], "name": t.get("name"), "ref": t.get("ref"), "highway": t.get("highway"),
                      "lanes": t.get("lanes"), "width": t.get("width"), "nodes": el.get("nodes", []),
                      "geom": [(g["lon"], g["lat"]) for g in el["geometry"]]})
     return ways
@@ -94,11 +94,13 @@ def pavement_width(way: dict | None, profile: str = "urban") -> float:
     if hw.endswith("_link"):                   # interchange ramp: one lane + shoulder, either profile
         return round(lane_w + 2.0, 1)
     cmin, extra = table.get(hw, (2, 3.0))
-    lanes = cmin
+    # An explicit lanes tag is ground truth — a tagged 2-lane secondary is 2 lanes, not the class
+    # floor (flooring turned Sand Creek's tagged 1- and 2-lane streets into 15.5 m highways).
+    # The class floor only fills in when OSM doesn't say.
     try:
-        lanes = max(int(way["lanes"]), cmin)   # OSM often UNDER-tags US arterials → floor at the class typical
+        lanes = max(int(way["lanes"]), 1)
     except (TypeError, ValueError):
-        pass
+        lanes = cmin
     return round(lanes * lane_w + extra, 1)
 
 
@@ -185,6 +187,66 @@ def detect_junctions(ways: list[dict], cl: list[Vertex], *, near_m: float = 16.0
     return out
 
 
+def detect_turn_corners(ways: list[dict], cl: list[Vertex], *, profile: str = "urban",
+                        kink_deg: float = 45.0, near_m: float = 16.0) -> list[dict]:
+    """Corners where the LAP ITSELF turns street-to-street hard — junction-grade pavement
+    regardless of road class. detect_junctions gates on >=2 ARTERIAL ways, which misses a
+    minor-street corner mouth entirely (Kevin: "a corner at the bottom of the hill that is
+    impossible to make ... treat it like a wide intersection"). A heading kink > kink_deg
+    concentrated within +-12 m, at a vertex near an OSM node shared by >=2 drivable ways,
+    is a paved corner — flare it like an intersection. Mountain hairpins never trigger:
+    they are one way bending back on itself, not two ways sharing a node."""
+    from collections import defaultdict
+    lat0 = sum(p[1] for p in cl) / len(cl)
+    kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0
+    xs = [c[0] * kx for c in cl]; zs = [c[1] * ky for c in cl]
+    st = [0.0]
+    for i in range(1, len(cl)):
+        st.append(st[-1] + math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]))
+    node_ll: dict = {}
+    node_ways: dict = defaultdict(set)
+    for wi, wv in enumerate(ways):
+        for nid, (lo, la) in zip(wv.get("nodes", []), wv["geom"]):
+            node_ll[nid] = (lo * kx, la * ky)
+            node_ways[nid].add(wi)
+
+    def _ident(wi):
+        wv = ways[wi]
+        return (wv.get("name") or wv.get("ref") or f"way{wv.get('id', wi)}").strip().lower()
+
+    # >=2 DISTINCT ROADS at the node — OSM splits one road into multiple ways at every junction
+    # node, so counting ways flags every hairpin of a split mountain road as a 'corner' (the
+    # Lariat's switchbacks all got 14 m junction pads). Same name/ref continuing = one road.
+    shared = [(node_ll[nid], ws) for nid, ws in node_ways.items()
+              if len({_ident(w) for w in ws}) >= 2]
+
+    def hd(i):
+        a, b = max(0, i - 2), min(len(cl) - 1, i + 2)
+        return math.atan2(zs[b] - zs[a], xs[b] - xs[a])
+
+    out: list[dict] = []
+    i, n = 0, len(cl)
+    while i < n:
+        j0 = i
+        while j0 > 0 and st[i] - st[j0] < 12.0:
+            j0 -= 1
+        j1 = i
+        while j1 < n - 1 and st[j1] - st[i] < 12.0:
+            j1 += 1
+        d = abs((math.degrees(hd(j1) - hd(j0)) + 180.0) % 360.0 - 180.0)
+        if d > kink_deg:
+            px, pz = xs[i], zs[i]
+            near = [ws for (qx, qz), ws in shared if (qx - px) ** 2 + (qz - pz) ** 2 <= near_m * near_m]
+            if near:
+                wset = set().union(*near)
+                two = sorted((pavement_width(ways[w], profile) for w in wset), reverse=True)[:2]
+                out.append({"idx": i, "size": round(max(14.0, sum(two) * 0.9), 1)})
+                i = j1 + 5      # one corner, one flare
+                continue
+        i += 1
+    return out
+
+
 def flare_widths(widths: list[float], cl: list[Vertex], junctions: list[dict], *, blend_m: float = 7.0) -> list[float]:
     """Widen the road at each junction to the intersection's pavement size, tapering back to the street
     width over ``blend_m`` — a smooth flare baked INTO the ribbon width (no overlapping pad, so no bump).
@@ -225,28 +287,95 @@ def build(project_dir: str | Path) -> dict:
     lons = [c[0] for c in cl]; lats = [c[1] for c in cl]
     pad = 0.0015
     bbox = (min(lats) - pad, min(lons) - pad, max(lats) + pad, max(lons) + pad)
-    profile = json.loads((project / "track.config.json").read_text()).get("route", {}).get("width_profile", "urban")
+    route = json.loads((project / "track.config.json").read_text()).get("route", {}) or {}
+    profile = route.get("width_profile", "urban")
     ways = fetch_ways(bbox)
+    # IDENTITY LOCK: freeway-class ways may donate widths ONLY when the route declares them
+    # (by name, "ref:NAME" or "id:N,N"). A street circuit beside I-270/US-85 was inheriting
+    # freeway widths from nearest-way matching — "sand creek is fucking highways".
+    _decl_names, _decl_refs, _decl_ids = set(), set(), set()
+    for _r in route.get("roads") or []:
+        if _r.startswith("ref:"):
+            _decl_refs.add(_r[4:].strip().lower())
+        elif _r.startswith("id:"):
+            _decl_ids.update(int(t) for t in _r[3:].split(",") if t.strip())
+        else:
+            _decl_names.add(_r.strip().lower())
+    _FREEWAY = {"motorway", "trunk", "motorway_link", "trunk_link"}
+    _banned = 0
+    _kept = []
+    for _w in ways:
+        if _w.get("highway") in _FREEWAY:
+            _nm = (_w.get("name") or "").strip().lower()
+            _rf = (_w.get("ref") or "").strip().lower()
+            if _w["id"] not in _decl_ids and _nm not in _decl_names \
+                    and not (_rf and any(_rf == d or d in _rf.split(";") for d in _decl_refs)):
+                _banned += 1
+                continue
+        _kept.append(_w)
+    if _banned:
+        print(f"  [widths_from_osm] identity lock: {_banned} undeclared freeway-class ways excluded from matching")
+    ways = _kept
+    # cache street geometry for the pack stage's OSM-style preview (no network at pack time)
+    (data / "osm.ways.json").write_text(json.dumps(
+        [{"highway": w.get("highway"), "geom": w["geom"]} for w in ways]), encoding="utf-8")
     idx = _match_per_vertex(cl, ways)
     widths_cl = [pavement_width(ways[wi] if wi >= 0 else None, profile) for wi in idx]
     widths_cl = _smooth(widths_cl)
     # FLARE the ribbon at the real intersections the circuit drives through (widen the road itself, one
     # continuous surface — NOT an overlapping pad, which poked above the sloped road and read as bumps).
+    widths_base_cl = widths_cl[:]        # pre-flare: the street's own line (sidewalks follow THIS)
     junctions = detect_junctions(ways, cl, profile=profile)
-    widths_cl = flare_widths(widths_cl, cl, junctions)
-    # TAPER RATE LIMIT: real lane adds/gores open at ~1:7 or shallower. Map-matched widths step
-    # hard when the matched way changes (mainline vs turn pocket vs ramp) — up to 6 m per 3 m
-    # vertex on the US-6 corridor — and each step ships as a sawtooth edge / a 1-2 m shoulder
-    # cliff at the gore. Forward+backward passes cap |dW/ds| at 0.15 m/m.
-    st = [0.0]
-    for i in range(1, len(cl)):
-        st.append(st[-1] + haversine_m(cl[i - 1], cl[i]))
-    for rng in (range(1, len(widths_cl)), range(len(widths_cl) - 2, -1, -1)):
-        for i in rng:
-            j = i - 1 if rng.step == 1 else i + 1
-            ds = abs(st[i] - st[j])
-            if widths_cl[i] > widths_cl[j] + 0.15 * ds:
-                widths_cl[i] = widths_cl[j] + 0.15 * ds
+    corners = detect_turn_corners(ways, cl, profile=profile)
+    if corners:
+        print(f"  [widths_from_osm] {len(corners)} hard route corners flared to junction grade "
+              f"(sizes {[c['size'] for c in corners]})")
+    widths_cl = flare_widths(widths_cl, cl, junctions + corners)
+    # DECLARED CORNER FLARES ONLY (route.wide_corners: [{station_m, width_m}]). Auto fold
+    # widening is OFF: three days of data show a swept ribbon cannot carry junction-width
+    # pavement through a fold — every auto-widened fold shipped pleat steps. Corners a DRIVER
+    # flags get a taper-aware flare + (in build_mesh) a local plateau and a paved disc.
+    _lat0u = sum(p[1] for p in cl) / len(cl)
+    _kxu = 111320.0 * math.cos(math.radians(_lat0u)); _kyu = 110540.0
+    _stu = [0.0]
+    for _i in range(1, len(cl)):
+        _stu.append(_stu[-1] + math.hypot((cl[_i][0] - cl[_i - 1][0]) * _kxu,
+                                          (cl[_i][1] - cl[_i - 1][1]) * _kyu))
+    def _hdu(i):
+        a, b = max(0, i - 2), min(len(cl) - 1, i + 2)
+        return math.atan2((cl[b][1] - cl[a][1]) * _kyu, (cl[b][0] - cl[a][0]) * _kxu)
+
+    _folds = []
+    # AUTO tier restored at rc10 magnitude: folds > 110 deg (±15 m window) get a MODEST 10 m
+    # floor — enough to drive (rc10 shipped ~9.6 net there and passed), narrow enough that the
+    # fold fans stay at the baseline pleat level. Junction-width corners remain a DRIVER call.
+    _i = 0
+    while _i < len(cl):
+        _j0 = _i
+        while _j0 > 0 and _stu[_i] - _stu[_j0] < 15.0:
+            _j0 -= 1
+        _j1 = _i
+        while _j1 < len(cl) - 1 and _stu[_j1] - _stu[_i] < 15.0:
+            _j1 += 1
+        _du = abs((math.degrees(_hdu(_j1) - _hdu(_j0)) + 180.0) % 360.0 - 180.0)
+        if _du > 110.0:
+            _folds.append((_i, 10.0, round(_du)))
+            while _i < len(cl) - 1 and _stu[_i] - _stu[_j0] < 45.0:
+                _i += 1
+            continue
+        _i += 1
+    for _wc in route.get("wide_corners", []) or []:
+        _si = min(range(len(cl)), key=lambda k: abs(_stu[k] - float(_wc["station_m"])))
+        _folds.append((_si, float(_wc.get("width_m", 14.0)), "declared"))
+    for _ai, _tw, _deg in _folds:
+        for _i in range(len(cl)):
+            _d = max(0.0, abs(_stu[_i] - _stu[_ai]) - 18.0)
+            _lb = _tw - 0.14 * _d
+            if _lb > widths_cl[_i]:
+                widths_cl[_i] = _lb
+    if _folds:
+        print(f"  [widths_from_osm] declared corner flares: "
+              f"{[(round(_stu[a]), w) for a, w, d in _folds]}")
     # resample widths to the LOCAL vertex count if they differ (nearest by fractional index)
     if len(widths_cl) != n_local:
         widths = [widths_cl[min(len(widths_cl) - 1, round(i * (len(widths_cl) - 1) / max(n_local - 1, 1)))]
@@ -254,6 +383,12 @@ def build(project_dir: str | Path) -> dict:
     else:
         widths = widths_cl
     widths = [round(w, 2) for w in widths]
+    if len(widths_base_cl) != n_local:
+        widths_base = [widths_base_cl[min(len(widths_base_cl) - 1,
+                       round(i * (len(widths_base_cl) - 1) / max(n_local - 1, 1)))] for i in range(n_local)]
+    else:
+        widths_base = widths_base_cl
+    local["widths_base_m"] = [round(w, 2) for w in widths_base]
     local["widths_m"] = widths
     local["default_width_m"] = round(sum(widths) / len(widths), 2)
     (data / "centerline.local.json").write_text(json.dumps(local), encoding="utf-8")

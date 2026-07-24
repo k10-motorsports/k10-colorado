@@ -115,11 +115,65 @@ def _map_params(xz, size: int = 900, margin: int = 28):
     rx, rz = maxx - minx, maxz - minz
     scale = (size - 2 * margin) / max(rx, rz)
     ox, oz = (size - rx * scale) / 2, (size - rz * scale) / 2  # centering offsets (px)
-    params = {"WIDTH": size, "HEIGHT": size, "SCALE_FACTOR": round(scale, 6),
+    params = {"WIDTH": size, "HEIGHT": size,
+              # AC semantics: pixel = (world + OFFSET) / SCALE_FACTOR -> SCALE is METERS PER
+              # PIXEL (Kunos tracks ship ~5-9). We shipped px/m; every point mapped thousands
+              # of px off-canvas and the minimap showed nothing ("map doesn't work").
+              "SCALE_FACTOR": round(1.0 / scale, 6),
               "X_OFFSET": round(ox / scale - minx, 3), "Z_OFFSET": round(oz / scale - minz, 3),
               "MARGIN": margin, "DRAWING_SIZE": 10}
     geom = {"minx": minx, "minz": minz, "maxz": maxz, "scale": scale, "ox": ox, "oz": oz, "S": size}
     return params, geom
+
+
+def _osm_preview(project_dir: Path, w: int = 1200, h: int = 675):
+    """CM preview: the cached OSM street network (grey, class-weighted) with the ROUTE drawn
+    bold on top — 'the osm with the route drawn on it'. Returns a PIL Image or None."""
+    waysp = project_dir / "data" / "osm.ways.json"
+    clp = project_dir / "data" / "centerline.geojson"
+    if not (waysp.exists() and clp.exists()):
+        return None
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return None
+    ways = json.loads(waysp.read_text())
+    gj = json.loads(clp.read_text())
+    feats = gj.get("features", [gj])
+    line = next((f for f in feats if f.get("geometry", {}).get("type") == "LineString"), None)
+    if line is None:
+        return None
+    route = [(c[0], c[1]) for c in line["geometry"]["coordinates"]]
+    lons = [c[0] for c in route]; lats = [c[1] for c in route]
+    lat0 = sum(lats) / len(lats)
+    kx = math.cos(math.radians(lat0))
+    x0, x1 = min(lons), max(lons)
+    z0, z1 = min(lats), max(lats)
+    padx = (x1 - x0) * 0.12 + 1e-9; padz = (z1 - z0) * 0.12 + 1e-9
+    x0 -= padx; x1 += padx; z0 -= padz; z1 += padz
+    sc = min(w / ((x1 - x0) * kx), h / (z1 - z0))
+    ox = (w - (x1 - x0) * kx * sc) / 2; oz = (h - (z1 - z0) * sc) / 2
+
+    def px(lon, lat):
+        return (ox + (lon - x0) * kx * sc, h - (oz + (lat - z0) * sc))
+
+    AA = 2
+    img = Image.new("RGB", (w * AA, h * AA), (242, 239, 233))     # OSM-carto paper
+    dr = ImageDraw.Draw(img)
+    W = {"motorway": 7, "trunk": 7, "primary": 6, "secondary": 5, "tertiary": 4}
+    for pass_i, (col, extra) in enumerate((((201, 196, 187), 2), ((255, 255, 255), 0))):
+        for wv in ways:
+            g = wv.get("geom") or []
+            if len(g) < 2:
+                continue
+            wid = (W.get((wv.get("highway") or "").replace("_link", ""), 3) + extra) * AA
+            pts = [tuple(c * AA for c in px(lo, la)) for lo, la in g]
+            dr.line(pts, fill=col, width=wid, joint="curve")
+    rpts = [tuple(c * AA for c in px(lo, la)) for lo, la in route]
+    dr.line(rpts, fill=(224, 52, 44), width=8 * AA, joint="curve")
+    dr.ellipse([rpts[0][0] - 10 * AA, rpts[0][1] - 10 * AA, rpts[0][0] + 10 * AA, rpts[0][1] + 10 * AA],
+               fill=(224, 52, 44), outline=(255, 255, 255), width=3 * AA)
+    return img.resize((w, h), Image.LANCZOS)
 
 
 def map_ini(params: dict) -> str:
@@ -178,6 +232,28 @@ def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None, flip_y: b
             f'stroke-linejoin="round" stroke-linecap="round"/></svg>')
 
 
+def _draw_track_png(xz, geom, png: Path, *, stroke=(255, 255, 255, 255), width: float = 10,
+                    flip_y: bool = False, multi=None) -> None:
+    """Draw the track line straight to a TRANSPARENT PNG with PIL. qlmanage flattens SVG
+    transparency to opaque white — the shipped map.png was a white square (white line on
+    white: the in-game minimap and the CM outline overlay were both invisible/blocky)."""
+    from PIL import Image, ImageDraw
+    minx, minz, maxz, scale, ox, oz, S = (geom[k] for k in ("minx", "minz", "maxz", "scale", "ox", "oz", "S"))
+    AA = 2
+
+    def px(x, z):
+        py = ((maxz - z) if flip_y else (z - minz)) * scale + oz
+        return ((x - minx) * scale + ox) * AA, py * AA
+
+    img = Image.new("RGBA", (S * AA, S * AA), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(img)
+    for line in (multi if multi is not None else [xz]):
+        pts = [px(x, z) for x, z in line]
+        if len(pts) >= 2:
+            dr.line(pts, fill=stroke, width=max(1, int(width * AA)), joint="curve")
+    img.resize((S, S), Image.LANCZOS).save(png)
+
+
 def _rasterize(svg: str, png: Path, size: int) -> bool:
     """qlmanage SVG→PNG (macOS build host). Falls back to writing the .svg if unavailable."""
     try:
@@ -225,15 +301,29 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     params, geom = _map_params(xz)
     (out / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
     # HUD minimap — white track, transparent, AC convention (consistent with map.ini)
-    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False,
-                          multi=multi), out / "map.png", params["WIDTH"])
-    # preview — reuse the Phase-4 3D render (a real view of the track) if present
+    _draw_track_png(xz, geom, out / "map.png", stroke=(255, 255, 255, 255),
+                    width=params["DRAWING_SIZE"], flip_y=False, multi=multi)
+    # preview — OSM street map with the route drawn on it (Kevin), from the widths stage's
+    # cached ways (data/osm.ways.json) so pack needs no network. Falls back to the 3D render
+    # or the plain outline when no ways cache exists (aerial-traced facilities).
+    preview_img = _osm_preview(project_dir)
     render_svg = project_dir / "data" / "track_render.svg"
     preview_src = render_svg.read_text(encoding="utf-8") if render_svg.exists() else \
         _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True, multi=multi)
 
     import shutil
     layouts = [lo["id"] for lo in cfg.layouts]
+    # SINGLE-LAYOUT tracks use the suffix-FREE structure: models.ini, ui/ui_track.json, ai/ at
+    # the root. Writing models_<layout>.ini makes AC treat the track as multi-layout and look
+    # for <track>/<layout>/map.png — which doesn't exist, so the in-game minimap NEVER rendered.
+    single = len(layouts) == 1
+    # clean STALE structure files from previous packs: models.ini beside models_<layout>.ini
+    # makes AC mis-detect the layout structure (and vice versa)
+    if single:
+        for _st in out.glob("models_*.ini"):
+            _st.unlink()
+    else:
+        (out / "models.ini").unlink(missing_ok=True)
     for layout in layouts:
         # Per-track spawn: if this layout has its own dummies_<layout>.json + a built spawn kn5, load it
         # as MODEL_1 alongside the shared main kn5, and count pits from THIS layout's dummies.
@@ -243,17 +333,29 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         has_spawn = sp_dummies_path.exists() and spawn_kn5_src.exists()
         layout_dummies = json.loads(sp_dummies_path.read_text(encoding="utf-8")) if sp_dummies_path.exists() else dummies
         layout_pits = sum(1 for k in layout_dummies if k.startswith("AC_PIT_")) or n_pits or 1
-        (out / ("models_%s.ini" % layout)).write_text(
+        (out / ("models.ini" if single else "models_%s.ini" % layout)).write_text(
             models_ini(kn5_name, spawn_kn5 if has_spawn else None), encoding="utf-8")
         if has_spawn:
             shutil.copyfile(spawn_kn5_src, out / spawn_kn5)
-        uid = out / "ui" / layout
+        uid = (out / "ui") if single else (out / "ui" / layout)
         uid.mkdir(parents=True, exist_ok=True)
         (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, layout_pits), indent=2),
                                            encoding="utf-8")
-        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True, multi=multi), uid / "outline.png", params["WIDTH"])
-        _rasterize(preview_src, uid / "preview.png", 600)
-        aid = out / "ai" / layout
+        _draw_track_png(xz, geom, uid / "outline.png", stroke=(232, 236, 240, 255),
+                        width=3, flip_y=True, multi=multi)
+        if preview_img is not None:
+            preview_img.save(uid / "preview.png")
+        else:
+            _rasterize(preview_src, uid / "preview.png", 600)
+        if not single:
+            # Kunos multi-layout: <track>/<layout>/ holds map.png + data/ + ai/ per layout
+            _lroot = out / layout
+            (_lroot / "data").mkdir(parents=True, exist_ok=True)
+            (_lroot / "data" / "surfaces.ini").write_text(surfaces_ini(), encoding="utf-8")
+            (_lroot / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
+            _draw_track_png(xz, geom, _lroot / "map.png", stroke=(255, 255, 255, 255),
+                            width=params["DRAWING_SIZE"], flip_y=False, multi=multi)
+        aid = (out / "ai") if single else (out / layout / "ai")
         aid.mkdir(parents=True, exist_ok=True)
         (aid / "README.txt").write_text(
             "fast_lane.ai is recorded in-game (AC + Content Manager, Windows) — see ac-track-modding.\n",

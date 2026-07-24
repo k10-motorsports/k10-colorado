@@ -25,3 +25,4 @@ tracks/*/data/*.svg
 tracks/*/data/audit.json
 # conformed-ground heightfield, rebuilt by the mesh stage (like track.obj)
 tracks/*/data/ground.local.json
+.engine/

@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.16.7",
+  "version": "0.26.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real street circuit \u2014 after the project stage, scripts.gps.widths_from_osm map-matches each centerline vertex to its OSM way and sets curb-to-curb widths from lanes (arterials ~2x a side street) + writes intersection pads at the real junctions. Racetracks (defined widths) leave this off.",
@@ -80,7 +80,7 @@
     "_doc": "Per-track foliage/scatter knobs read by scripts/environment/build_env.py. Defaults (shown) reproduce the original look; override per track (e.g. a desert track wants sparser, lower scrub). corridor_margin_m keeps ALL scatter this far clear of every road (main loop + connectors).",
     "corridor_margin_m": 3.0,
     "tree_step_m": 28.0,
-    "tree_cap": 700,
+    "tree_cap": 1400,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 6.0,
@@ -89,7 +89,7 @@
     "bush_off_span_m": 33.0,
     "bush_size_min_m": 1.2,
     "bush_size_span_m": 1.4,
-    "light_spacing_m": 48.0,
+    "light_spacing_m": 96,
     "powerline_spacing_m": 52.0,
     "signs": {
       "_doc": "Street-name blade signs at each major junction (from data/street_labels.json, same legs as the painted road decals). enabled=false drops them. flip_read/flip_up are one-bit fixes if the text reads mirrored or upside-down in-game (verify on the first Windows drive).",
@@ -97,7 +97,23 @@
       "flip_read": false,
       "flip_up": false
     },
-    "lamp_model": true
+    "lamp_model": "street_lamp_new.obj",
+    "lamp_height_m": 5.5,
+    "forest3d": {
+      "module": "poplar",
+      "spacing_m": 42.0,
+      "off_min_m": 9.0,
+      "off_max_m": 30.0,
+      "cap": 260,
+      "scale_min": 0.9,
+      "scale_max": 1.6,
+      "_doc": "3D poplars scattered near the streets; riparian billboards stay on the creek"
+    },
+    "road_signs": {
+      "enabled": false
+    },
+    "fence_auto": false,
+    "fences": false
   },
   "origin": "centroid",
   "true_north_rotation_deg": 180.0,
@@ -112,6 +128,11 @@
       "ai": "ai/full",
       "uses_connectors": [],
       "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start. The 'interior' layout was dropped: its interior_grid connector was never defined, and layouts share one kn5 so a distinct interior circuit isn't achievable without splitting geometry."
+    },
+    {
+      "id": "reverse",
+      "ai": "ai/reverse",
+      "_doc": "same world, opposite direction \u2014 own grid/timing via dummies_reverse.json + spawn kn5"
     }
   ],
   "lighting": {
@@ -122,13 +143,23 @@
     ],
     "grassfx": true,
     "streetlight": {
-      "intensity": 0.7,
-      "emissive": 0.22,
       "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
       "range_m": 60.0,
+      "intensity": 0.35,
+      "emissive": 0.22,
+      "color": [
+        1.0,
+        0.85,
+        0.3
+      ],
+      "emissive_color": [
+        255,
+        220,
+        60
+      ],
       "spot_deg": 155,
       "spot_sharpness": 0.1,
-      "range_gradient_offset": 0.4,
+      "range_gradient_offset": 0.55,
       "specular_mult": 0.12
     }
   },
@@ -147,5 +178,25 @@
   "props": {
     "concrete_barriers": true,
     "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
+  },
+  "archetype": "street_circuit",
+  "texture_overrides": {
+    "1ROAD": {
+      "diffuse": "assets/textures/asphalt_cracked_diffuse.jpg",
+      "normal": "assets/textures/asphalt_cracked_normal.jpg",
+      "_doc": "Kevin: use the Lariat's road texture (stock cracked asphalt), not the phone capture"
+    },
+    "1GRASS": {
+      "diffuse": "assets/textures/grass_diffuse.jpg",
+      "normal": "assets/textures/grass_normal.jpg",
+      "_doc": "Kevin: the Lariat's alpine grass look on Sand Creek too"
+    },
+    "LIGHTPOST": {
+      "diffuse": "assets/textures/street_lamp_new.png",
+      "_doc": "the purpose-modeled lamp's own skin (emissive baked, opacity alpha)"
+    },
+    "LAMPHEAD": {
+      "diffuse": "assets/textures/street_lamp_new.png"
+    }
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.2.5",
+  "version": "0.13.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -39,7 +39,14 @@
       "id:484287799,1351773584,533503588,533503214"
     ],
     "_roads_doc": "Paradise Road is the historic Lariat Loop leg through the Mount Vernon townsite \u2014 it tees off Lookout Mountain Rd and drops to US-40 at the exit-256 junction. Without it there is a 1.1 km hole (Lookout Mtn Rd itself never touches US-40). The id: entry is the US-6 northbound off-ramp at the 19th St interchange \u2014 19th St crosses US-6 on a bridge, so closing the ring mainline-to-bridge directly creates a fake 6.5 m vertical step (a 17% launch ramp at start/finish); the lap must climb the real ramp.",
-    "connectors": {}
+    "connectors": {},
+    "wide_corners": [
+      {
+        "station_m": 262,
+        "width_m": 14.0,
+        "_doc": "Kevin: 'the turn on the mountain route is impossible' \u2014 base-of-climb 90deg kink, 2-4 turns ahead of the start; same geometry as a switchback so it needs a human call"
+      }
+    ]
   },
   "loop": true,
   "default_width_m": 7.0,
@@ -61,9 +68,9 @@
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
     "tree_step_m": 7.0,
-    "tree_cap": 16000,
-    "fill_range_m": 140.0,
-    "fill_per_station": 4,
+    "tree_cap": 40000,
+    "fill_range_m": 220.0,
+    "fill_per_station": 6,
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -78,34 +85,20 @@
       "enabled": false
     },
     "fill_bias": 2.4,
-    "lamp_model": true,
-    "fences": [
-      {
-        "start_m": 7600,
-        "end_m": 10200,
-        "side": 0,
-        "offset_m": 8.0,
-        "_doc": "summit plateau ranch land - split-rail both sides at the right-of-way line (Kevin: off the road a bit like irl)"
-      },
-      {
-        "start_m": 12500,
-        "end_m": 14500,
-        "side": 1,
-        "offset_m": 9.0,
-        "_doc": "Mount Vernon pastures, uphill side"
-      }
-    ],
+    "lamp_model": "street_lamp_new.obj",
+    "fences": false,
     "pylons": [
       {
         "start_m": 20600,
         "end_m": 24000,
         "side": -1,
         "offset_m": 55.0,
-        "_doc": "distribution line paralleling the plains legs, well off the road; module carries its own 134 m cable span (tower-only module; cables strung in the Blender pass)"
+        "_doc": "distribution line paralleling the plains legs, well off the road; module carries its own 134 m cable span (tower-only module; cables strung in the Blender pass)",
+        "sink_m": 1.2
       }
     ],
     "road_signs": {
-      "enabled": true,
+      "enabled": false,
       "speed_signs": [
         {
           "station_m": 700,
@@ -121,7 +114,20 @@
         }
       ],
       "_doc": "Euro faces per Kevin: sharp-turn arrows at warning-barrier entries; 70 disc on the climb, 110 discs on the plains legs."
-    }
+    },
+    "lamp_height_m": 5.5,
+    "forest3d": {
+      "module": "pine",
+      "spacing_m": 20.0,
+      "off_min_m": 7.0,
+      "off_max_m": 40.0,
+      "cap": 900,
+      "scale_min": 2.2,
+      "scale_max": 4.2,
+      "_doc": "real 3D pines in the driver's corridor; billboards carry the slopes"
+    },
+    "fence_auto": false,
+    "fill_off_min_extra_m": 12.0
   },
   "origin": "centroid",
   "surfaces": {
@@ -135,6 +141,11 @@
       "ai": "ai/full",
       "uses_connectors": [],
       "_doc": "One layout: gates -> Lariat Trail switchback climb -> Buffalo Bill summit -> Lookout Mountain Rd south to US-40 (Mount Vernon, exit 256) -> US-40 down Mt Vernon Canyon past Heritage Square -> US-6 north -> 19th St -> gates. ~20.9 km, the Nordschleife-length ring."
+    },
+    {
+      "id": "reverse",
+      "ai": "ai/reverse",
+      "_doc": "same world, opposite direction \u2014 own grid/timing via dummies_reverse.json + spawn kn5"
     }
   ],
   "lighting": {
@@ -147,7 +158,7 @@
     "streetlight": {
       "_doc": "Wide DIM wash (Kevin: ~3x spread, no ground saturation). CSP RANGE scales deposited energy - widening range demands cutting intensity: 60 m range at 1.1, soft 155-deg cone, high gradient offset, damped specular.",
       "range_m": 60.0,
-      "intensity": 0.7,
+      "intensity": 0.35,
       "emissive": 0.22,
       "color": [
         1.0,
@@ -161,7 +172,7 @@
       ],
       "spot_deg": 155,
       "spot_sharpness": 0.1,
-      "range_gradient_offset": 0.4,
+      "range_gradient_offset": 0.55,
       "specular_mult": 0.12
     }
   },
@@ -179,6 +190,13 @@
       "diffuse": "assets/textures/grass_diffuse.jpg",
       "normal": "assets/textures/grass_normal.jpg",
       "_doc": "Alpine grass instead of dry dirt (Kevin) - mesh stays 1GRASS so physics, audits and GrassFX are untouched; GrassFX (lighting.grassfx) grows 3D blades on it."
+    },
+    "LIGHTPOST": {
+      "diffuse": "assets/textures/street_lamp_new.png",
+      "_doc": "the purpose-modeled lamp's own skin (emissive baked, opacity alpha)"
+    },
+    "LAMPHEAD": {
+      "diffuse": "assets/textures/street_lamp_new.png"
     }
   },
   "road_markings": {
@@ -189,5 +207,6 @@
   "props": {
     "concrete_barriers": true,
     "_doc": "Kevin's model pack: 4 m concrete barrier modules instanced along warning-barrier runs as collidable 1WALL geometry (replaces the procedural swept jersey)."
-  }
+  },
+  "archetype": "real_road"
 }
