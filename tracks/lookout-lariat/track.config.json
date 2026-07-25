@@ -1,7 +1,7 @@
 {
   "name": "Lookout Mountain Lariat",
   "slug": "lookout_lariat",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "mirror_x": true,
   "osm_road_widths": true,
   "_osm_road_widths_doc": "Real public-road loop \u2014 per-vertex curb-to-curb widths map-matched from OSM lanes, same as Sand Creek. Matters here because the lap spans three very different roads: the ~6.5 m Lariat Trail switchbacks, 2-lane US-40 with shoulders, and one carriageway of 4-lane US-6.",
@@ -63,15 +63,15 @@
     "_crossfall_doc": "Camber is MEASURED (data/crossfall.json): lateral 1 m-DEM pairs -> cross-slope, median+mean smoothed, 1.5% deadband (flat where mild - not everywhere), capped 6% (~3.4 deg, no launching). 61.7% of the lap banked, mountain sections tilt into the hillside."
   },
   "scenery": {
-    "_doc": "Foothills pine forest: TurboSquid-derived pine sprite atlas (rendered imagery only, mesh never ships), packed HARD near the road (step 7 m, 4/station/side, bias 2.4 -> most trees within ~25 m of the verge), grass ground + GrassFX. Streetlights ON per Kevin: yellow, 96 m, dim wide pools.",
+    "_doc": "Foothills pine forest (BAKED mesh, treefx OFF): TurboSquid-derived pine sprite atlas billboards packed HARD near the road (step 7 m, 68/station/side, bias 2.4 -> most trees within ~25 m of the verge) + real 3D pine OBJs in the corridor, grass ground + GrassFX. v0.15.0 cranked ~4x denser than the v0.8.0 baked forest Kevin drove. Streetlights ON per Kevin: yellow, 96 m, dim wide pools.",
     "tree_style": "conifer",
     "fill_terrain": true,
     "corridor_margin_m": 4.0,
     "tree_step_m": 7.0,
-    "tree_cap": 80000,
+    "tree_cap": 480000,
     "fill_range_m": 220.0,
-    "fill_per_station": 10,
-    "_treefx_count_doc": "tree_cap 40000->80000 and fill_per_station 6->10 raised for the TreeFX pass: CSP 3D TreeFX is cheap, so the fill_terrain candidate field is denser (~54k candidates over the 220 m band) and the elevation keep-curve governs the final count instead of the cap (p_keep stays 1.0). This gives a real forest-worth on the heavily-wooded mountain while the base stays sparse. These knobs only affect the (disabled) billboard path when treefx is off; here treefx routes fill_terrain to the CSP list.",
+    "fill_per_station": 68,
+    "_treefx_count_doc": "BAKED FOREST (treefx OFF): the 2D conifer billboards carry the mass and are the main density lever. MEASURED yield: on the steep foothills only ~25% of fill_terrain candidates seat (the rest hit seat_y cliff-lips on the 220 m band or land on pavement), so placed ~= tree_cap * 0.25 and the CAP is the real knob. tree_cap 40000->480000 (and fill_per_station 6->68 so the candidate pool ~482k over the 24.8 km lap keeps p_keep~1 and the cap governs) takes the baked forest from ~12.3k billboards (v0.8.0) to ~120k -- ~10x, a genuine wall of trees. Cheap crossed-star cards (~12 verts each, a small slice of the kn5 next to the 3D pines); AC handles hundreds of thousands. Offsets stay road-biased (fill_bias 2.4, range 220 m) so the wall reads dense from the seat while the tail reaches back; corridor_margin 4 + fill_off_min_extra 12 keep every trunk off the pavement (drive-test obstruction stays 0). Uniform natural fill along the whole lap (no elevation knob on the baked path).",
     "tree_atlas_cols": 3,
     "tree_atlas_rows": 2,
     "bush_spacing_m": 9.0,
@@ -119,18 +119,19 @@
     "lamp_height_m": 5.5,
     "forest3d": {
       "module": "pine",
-      "spacing_m": 20.0,
+      "spacing_m": 14.0,
       "off_min_m": 7.0,
       "off_max_m": 40.0,
-      "cap": 900,
+      "cap": 2500,
       "scale_min": 2.2,
       "scale_max": 4.2,
-      "_doc": "real 3D pines in the driver's corridor; billboards carry the slopes"
+      "_doc": "real 3D pines (~2000 tris each) in the driver's corridor; billboards carry the slopes. spacing 20->14 tightens the near-road pines and cap 900->2500 gives headroom (spacing is the real limiter -> ~1.5x the pines, geometry kept sane). Canopy clearance (_too_close3) still rejects any pine whose branches reach a lane, so obstruction stays 0."
     },
     "fence_auto": false,
     "fill_off_min_extra_m": 12.0,
     "treefx": {
-      "enabled": true,
+      "enabled": false,
+      "_disabled_doc": "TreeFX DISABLED (v0.15.0): TreeFX needs a Windows-only CSP manifest/bake step to load its text tree list, so on this build the .bin forest never renders. Reverted to the legacy BAKED-MESH forest (2D conifer billboards + 3D pine OBJs) that renders everywhere with no CSP dependency. Block kept intact but off so it can be re-enabled once the manifest path exists.",
       "seed": 20260724,
       "grassfx": true,
       "bundle": true,
