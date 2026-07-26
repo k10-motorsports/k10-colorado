@@ -1,15 +1,15 @@
 {
   "name": "High Plains Raceway",
   "slug": "high_plains",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
   "location": {
-    "lat": 39.67,
-    "lon": -104.77,
+    "lat": 39.7353,
+    "lon": -103.898,
     "timezone": "America/Denver",
-    "city": "Colorado",
+    "city": "Deer Trail",
     "country": "United States"
   },
   "origin": "centroid",
@@ -55,9 +55,10 @@
     "grassfx": true
   },
   "source": {
-    "type": "kml",
-    "kml": "",
-    "_note": "centerline.geojson provided directly (traced)"
+    "type": "from_track",
+    "track": "source/osm_fixes.json",
+    "_note": "RE-SOURCED 2026-07-25 from the REAL High Plains Raceway at 93301 E US Hwy 36, Deer Trail CO (39.7353,-103.8980). Replaces fabricated compressed lat/lon traced off the old unified map (which placed it at 39.67,-104.77, ~70 km away). Geometry is the closed cycle of OSM highway=raceway ways: Short North, Bikers Berm, Niagara, Dannys Lesson, High Plains Drifter, Prarie Corkscrew, Full West + one unnamed link = 3220 m (2.00 mi). The north section (To Hell On A Bobsled / Ladder To Heaven) is EXCLUDED: its south end is unmapped in OSM, leaving a 110 m gap that would have to be invented to close the full 2.55-mile course (LAWS L1 \u2014 never invent geometry). Add it by tracing that 110 m off a georeferenced aerial, then re-chain. Pit Lane excluded (not the racing line). Winding CW to match the other CO circuits. Elevation from USGS 3DEP at the real site.",
+    "_width_note": "default_width_m 12.0 is INHERITED FROM THE FABRICATED CONFIG and unverified against the real circuit."
   },
   "route": {
     "start_at": [
