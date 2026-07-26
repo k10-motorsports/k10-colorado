@@ -1,0 +1,61 @@
+# Second Creek Raceway — sourcing notes
+
+The circuit closed in the 2000s and the site was redeveloped, so it is **not in OpenStreetMap**
+(verified against Overpass 2026-07-26: only "Second Creek Trail", a footpath, and the creek itself).
+Its geometry therefore has to come from the two sources in this directory, not from OSM.
+
+## What we have
+
+| File | What it gives |
+|---|---|
+| `second_creek_layout_map.gif` (804×500) | The circuit SHAPE, with real corner names — Owl Turn, The Pipeline, Spectator Hook, Bonzai Straight, "Airborne", 88th Dog Leg, Kamakazi Turn, The Shoot — over contour lines. States **Length – 1.7 miles** (2736 m) and shows Buckley Road, the paddock, staging and parking. |
+| `second_creek_site_aerial_2026.png` (1206×2622) | The site TODAY at Buckley Rd & E 96th Ave. The old track's scar is still visible in the ground. Anchored by streets that ARE in OSM. |
+
+## Georeferencing anchors (from Overpass, tight bbox 39.848–39.866 / −104.800–−104.778)
+
+| Feature | Real position |
+|---|---|
+| North Buckley Road | lon **−104.7909** (N–S), lat 39.84147–39.87060 |
+| East 88th Avenue | lat **39.85640** (E–W), lon −104.79085–−104.77795 |
+| Pitkin Street | lon **−104.7866** (N–S), lat 39.86035–39.87025 |
+
+Buckley → Pitkin is 0.0043° lon ≈ **367 m**, which sets the aerial's scale at roughly **0.35 m/px**
+(Buckley at x≈60, Pitkin at x≈1100), so the visible field is about **425 m E–W × 925 m N–S**.
+
+## Progress so far
+
+The layout map traces cleanly. Thresholding at <100 grey gives a binary image; the track line is
+thick where the contour lines are 1–2 px, so **two erosions isolate it** — the largest connected
+component is 24,883 px spanning 721×312, and every other component is under 50 px (label
+fragments). Zhang-Suen thinning yields 2,612 skeleton pixels.
+
+Two things still to solve:
+
+1. **The skeleton is a graph, not a loop.** `order_path` walked only 786 of the 2,612 pixels,
+   because the map draws the alternate configurations (the inner loops sharing sections with the
+   full course). This needs the same cycle-selection used for High Plains: enumerate closed cycles
+   and pick the one matching the stated length. **1.7 miles = 2736 m is the validator** — a huge
+   advantage over guessing.
+
+2. **The orientation conflicts and must be resolved by fitting, not by reading the map.**
+   - The schematic puts Buckley Road *vertical on its right edge*, with the track to its **left**.
+   - Reality has the track **east** of Buckley Road: OSM shows the Rocky Mountain Arsenal refuge
+     perimeter immediately **west** of it (lon −104.808 to −104.791), so there is no racetrack on
+     that side.
+   - The traced shape is **wide and short** (387×189 px, 2:1) while the real envelope is **tall and
+     narrow** (~425 × 925 m), so the map is rotated roughly 90° from north-up.
+   - Encouragingly, fitting the long axis to N–S gives 800/387 ≈ **2.07 m/px** and the short axis to
+     E–W gives 400/189 ≈ **2.1 m/px** — consistent, which is a good sign the two sources describe
+     the same place at the same scale.
+
+   So: trace the scar in the aerial (that is the ground truth for position and orientation), then fit
+   the schematic shape to it over all four rotations and both mirrorings, and accept the transform
+   that both matches the scar and reproduces 2736 m. Do **not** pick an orientation by reading the
+   map's labels — they disagree with OSM.
+
+## Why this matters
+
+Every metre of this track's geometry will come from a hand-fitted trace rather than a survey, so the
+fit has to be validated against something independent. There are two independent checks available —
+the stated 1.7-mile length and the visible scar's position between real streets — and both must pass
+before this ships as a real port (L1).
