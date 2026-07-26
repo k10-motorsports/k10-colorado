@@ -1,6 +1,7 @@
 {
  "lap_m": 1031.7,
  "soft_top_in_lane": 38,
+ "off_pavement_stations": 0,
  "severe_steps": 39,
  "severe_per_km": 37.8,
  "steps_per_km": 85.29,
@@ -15,7 +16,7 @@
  "undrivable_corners": 0,
  "floating_furniture": 0,
  "apron_steps": 11,
- "excursion_drops": 20,
+ "excursion_drops": 22,
  "excursion_far_ledges": 0,
  "worst_excursions": [
   [
@@ -183,6 +184,12 @@
    true
   ],
   [
+   152.0,
+   11.0,
+   0.2,
+   true
+  ],
+  [
    301.3,
    11.5,
    0.19,
@@ -204,12 +211,6 @@
    602.3,
    -12.5,
    0.17,
-   true
-  ],
-  [
-   3.0,
-   -11.5,
-   0.15,
    true
   ]
  ],

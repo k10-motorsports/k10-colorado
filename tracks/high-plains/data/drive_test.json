@@ -1,6 +1,7 @@
 {
  "lap_m": 3101.8,
  "soft_top_in_lane": 0,
+ "off_pavement_stations": 0,
  "severe_steps": 30,
  "severe_per_km": 9.67,
  "steps_per_km": 23.21,
