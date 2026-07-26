@@ -1,4 +1,5 @@
 {
+  "archetype": "race_circuit",
   "name": "Pikes Peak International Raceway",
   "slug": "pikes_peak_international_raceway",
   "version": "0.2.2",

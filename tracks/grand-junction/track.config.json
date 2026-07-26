@@ -1,4 +1,5 @@
 {
+  "archetype": "race_circuit",
   "name": "Grand Junction Motor Speedway",
   "slug": "grand_junction",
   "version": "0.1.1",

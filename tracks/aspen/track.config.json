@@ -1,4 +1,5 @@
 {
+  "archetype": "race_circuit",
   "name": "Aspen Motorsports Park",
   "slug": "aspen_motorsports_park",
   "version": "0.1.1",

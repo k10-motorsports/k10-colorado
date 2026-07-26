@@ -1,4 +1,5 @@
 {
+  "archetype": "race_circuit",
   "name": "Second Creek Raceway",
   "slug": "second_creek",
   "version": "0.1.1",

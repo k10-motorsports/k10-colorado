@@ -1,4 +1,5 @@
 {
+  "archetype": "race_circuit",
   "name": "Pueblo Motorsports Park",
   "slug": "pueblo_motorsports_park",
   "version": "0.1.1",
