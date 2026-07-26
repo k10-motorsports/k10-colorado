@@ -86,5 +86,7 @@
       -104.6785
     ],
     "_orientation_doc": "Research 2026-07-20: PPIR oval raced COUNTERCLOCKWISE (NASCAR/IRL 1997-2005); S/F mid front stretch in front of the main grandstand (~38.5910,-104.6785), cars heading SSE. Our OSM ring was CW -> route.reverse. Cambers re-derived from curvature after reversal; bank sign flipped (+10) because outside/inside swap when direction reverses \u2014 verify outside-edge-up in Blender/game."
-  }
+  },
+  "terrain_cell_m": 2.0,
+  "terrain_vertex_budget": 1500000
 }

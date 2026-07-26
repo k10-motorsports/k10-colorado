@@ -14,7 +14,7 @@
  },
  "undrivable_corners": 0,
  "floating_furniture": 0,
- "apron_steps": 121,
+ "apron_steps": 122,
  "excursion_drops": 855,
  "excursion_far_ledges": 536,
  "worst_excursions": [
@@ -1225,6 +1225,11 @@
     0.067
    ],
    [
+    301.0,
+    2.88,
+    0.067
+   ],
+   [
     2606.0,
     3.54,
     0.067
@@ -1322,11 +1327,6 @@
    [
     286.0,
     -0.75,
-    0.064
-   ],
-   [
-    301.0,
-    2.81,
     0.064
    ],
    [
