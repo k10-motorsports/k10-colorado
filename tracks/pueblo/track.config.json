@@ -70,5 +70,7 @@
       -104.6774
     ],
     "_orientation_doc": "Research 2026-07-20: Pueblo Motorsports Park is CLOCKWISE ONLY (track rules); our ring is already CW. S/F on the wide west-side front straight near its south end (~38.3000,-104.6774), raced NNW-bound. Pit lane: east of the front straight (driver's right), ~350 m."
-  }
+  },
+  "terrain_cell_m": 1.5,
+  "terrain_vertex_budget": 1500000
 }
