@@ -64,3 +64,54 @@ Every metre of this track's geometry will come from a hand-fitted trace rather t
 fit has to be validated against something independent. There are two independent checks available —
 the stated 1.7-mile length and the visible scar's position between real streets — and both must pass
 before this ships as a real port (L1).
+
+
+---
+
+## Re-source attempt, 2026-07-27 — what was actually done, and what was NOT
+
+### The aerial scar is not traceable
+
+Examined at full resolution, autocontrast+unsharp, and in two 1.5x crops. The site has been
+regraded: what is visible is drainage swales, graded pads, stockpiles and active construction
+(the area immediately north of 88th is aconstruction  site). **No closed 2.7 km loop can be distinguished
+from grading contours.** The plan above — "trace the scar in the aerial (that is the ground truth
+for position and orientation)" — cannot be executed against this image. Do not spend more time on
+it without a better/older aerial (pre-redevelopment imagery would work).
+
+### A correction to the reasoning above
+
+The claim that "the real envelope is tall and narrow (~425 x 925 m)" and therefore "the map is
+rotated roughly 90 degrees from north-up" is **wrong**. 425 x 925 m is the aerial IMAGE at
+0.353 m/px (1206 x 2622 px) — it is a phone screenshot's viewport at its zoom level, not a
+property boundary. The screenshot is titled *Buckley Rd & E 96th Ave*; the land east of Buckley
+runs toward 96th, about a mile of open ground. Nothing constrains the site to 425 m wide, so the
+traced shape being 2:1 wide (1032 x 415 m) is not evidence of a rotation.
+
+**The rotation question is therefore open, not settled** — in either direction.
+
+### An orientation clue the notes missed
+
+The layout map names a corner **"88TH DOG LEG"**. Corners are named for what they sit on, so the
+circuit ran along or touched E 88th Avenue (lat 39.85640). That is an independent anchor from the
+source material itself, and it agrees with a west-east layout hugging 88th on its south side.
+
+### What was actually changed
+
+A **translation only** — no rotation, no rescaling, so the traced shape and its length are
+untouched (2741 m before and after, against the map's stated 1.7 mi = 2736 m).
+
+| | before | after |
+|---|---|---|
+| lon | -104.79689 .. -104.78483 (straddling Buckley) | -104.79043 .. -104.77838 |
+| lat | 39.85491 .. 39.85865 (straddling 88th) | 39.85640 .. 39.86014 |
+
++552 m east, +165 m north: west edge to Buckley + 40 m (the paddock/access strip the layout map
+draws along the road), south edge onto 88th Ave (the 88th Dog Leg).
+
+### Fidelity — read this before calling it a port
+
+Position is **fitted to two OSM street anchors plus Kevin's confirmation that the circuit was east
+of Buckley**. It is not surveyed, and it is not traced from the ground. The shape and length come
+from the layout map and are good; where that shape sits along 88th, and its rotation, carry real
+uncertainty. Registry fidelity must say so.

@@ -2,13 +2,13 @@
   "archetype": "race_circuit",
   "name": "Second Creek Raceway",
   "slug": "second_creek",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 10.0,
   "location": {
-    "lat": 39.856,
-    "lon": -104.79,
+    "lat": 39.8583,
+    "lon": -104.7844,
     "timezone": "America/Denver",
     "city": "Colorado",
     "country": "United States"
@@ -56,9 +56,11 @@
     "grassfx": true
   },
   "source": {
-    "type": "kml",
-    "kml": "",
-    "_note": "centerline.geojson provided directly (traced)"
+    "type": "geojson",
+    "geojson": "data/centerline.geojson",
+    "kml_original": "source/second_creek.kml",
+    "kml_placed": "source/second_creek_placed.kml",
+    "_note": "Layout-map trace, translated 2026-07-27 to OSM street anchors (Buckley Rd lon -104.7909, E 88th Ave lat 39.85640). Position is FITTED to those anchors, not surveyed and not traced from the aerial scar - see source/SOURCING.md."
   },
   "route": {
     "reverse": true,
