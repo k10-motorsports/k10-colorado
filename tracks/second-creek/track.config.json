@@ -58,9 +58,9 @@
   "source": {
     "type": "geojson",
     "geojson": "data/centerline.geojson",
-    "kml_original": "source/second_creek.kml",
+    "kml_original": "source/second_creek.kml.original-unplaced",
     "kml_placed": "source/second_creek_placed.kml",
-    "_note": "Layout-map trace, translated 2026-07-27 to OSM street anchors (Buckley Rd lon -104.7909, E 88th Ave lat 39.85640). Position is FITTED to those anchors, not surveyed and not traced from the aerial scar - see source/SOURCING.md."
+    "_note": "Layout-map trace, translated 2026-07-27 to OSM street anchors (Buckley Rd lon -104.7909, E 88th Ave lat 39.85640). Position is FITTED to those anchors, not surveyed and not traced from the aerial scar - see source/SOURCING.md. The pre-placement KML is kept with a non-.kml suffix on purpose: centerline_from_kml() globs source/*.km* and would otherwise pick it. This track SKIPS the gps stage (no route.bbox, centerline provided directly); resume from 'elev'."
   },
   "route": {
     "reverse": true,
