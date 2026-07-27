@@ -48,10 +48,15 @@ Two things still to solve:
      E–W gives 400/189 ≈ **2.1 m/px** — consistent, which is a good sign the two sources describe
      the same place at the same scale.
 
+   **Kevin confirms the track was EAST of Buckley Road** (2026-07-27), which settles the conflict:
+   the schematic's left/right is wrong, OSM's refuge-to-the-west reasoning is right. This removes
+   the mirroring ambiguity — any candidate transform placing the circuit west of lon −104.7909 is
+   rejected outright, leaving orientation (4 rotations) as the only free parameter.
+
    So: trace the scar in the aerial (that is the ground truth for position and orientation), then fit
-   the schematic shape to it over all four rotations and both mirrorings, and accept the transform
-   that both matches the scar and reproduces 2736 m. Do **not** pick an orientation by reading the
-   map's labels — they disagree with OSM.
+   the schematic shape to it over the four rotations, and accept the transform that puts the circuit
+   east of Buckley, matches the scar, and reproduces 2736 m. Do **not** pick an orientation by reading
+   the map's labels — they disagree with OSM and with Kevin.
 
 ## Why this matters
 

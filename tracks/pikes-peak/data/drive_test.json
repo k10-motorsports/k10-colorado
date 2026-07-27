@@ -4,8 +4,8 @@
  "off_pavement_stations": 0,
  "severe_steps": 70,
  "severe_per_km": 42.46,
- "steps_per_km": 98.26,
- "kinks_per_km": 235.34,
+ "steps_per_km": 98.87,
+ "kinks_per_km": 235.94,
  "obstruction_stations": 0,
  "daylight_gaps": 0,
  "replication_vs_measured": {
@@ -15,7 +15,7 @@
  },
  "undrivable_corners": 0,
  "floating_furniture": 0,
- "apron_steps": 18,
+ "apron_steps": 19,
  "excursion_drops": 90,
  "excursion_far_ledges": 2,
  "worst_excursions": [

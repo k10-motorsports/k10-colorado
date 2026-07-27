@@ -70,11 +70,8 @@
   "width_overrides": [],
   "road_edge": {
     "_doc": "Urban street edge swept along every road: road -> raised curb -> flat sidewalk -> graded grass as ONE continuous profile sharing seam vertices with the road and the grass, so nothing hovers (scripts/geometry/ribbon.py:curb_sidewalk; physical 1KERB_sidewalk). Omit (or profile != 'sidewalk') for the default asphalt shoulder. curb_h/sidewalk_w/grade_w in metres.",
-    "profile": "sidewalk",
-    "curb_h": 0.05,
-    "sidewalk_w": 1.5,
-    "grade_w": 1.0,
-    "curb_face_w": 0.3
+    "profile": "shoulder",
+    "_why": "Kevin 2026-07-26: 'I do want sand creek to have no sidewalks so that's a valid build type'. Sand Creek is a RACING loop laid on real streets - the race-day overlay is concrete barriers along the line, not pedestrian furniture. Set profile back to 'sidewalk' to restore the urban edge."
   },
   "scenery": {
     "_doc": "Per-track foliage/scatter knobs read by scripts/environment/build_env.py. Defaults (shown) reproduce the original look; override per track (e.g. a desert track wants sparser, lower scrub). corridor_margin_m keeps ALL scatter this far clear of every road (main loop + connectors).",
@@ -198,5 +195,7 @@
     "LAMPHEAD": {
       "diffuse": "assets/textures/street_lamp_new.png"
     }
-  }
+  },
+  "terrain_cell_m": 1.5,
+  "terrain_vertex_budget": 1500000
 }
