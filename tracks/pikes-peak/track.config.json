@@ -61,7 +61,7 @@
     "_note": "Re-sourced from real OSM highway=raceway way 1134026181 at Fountain, CO (reversed to CW winding), resampled to 3 m via scripts.gps.from_track. Real 1.03-mi D-oval; elevation from USGS 3DEP (real ~2 m sunken bowl, do not flatten)."
   },
   "road_profile": {
-    "_doc": "Real PPIR banking ~10 deg in the two turn arcs (outside edge up), flat on the straights. Arcs derived from the REVERSED+rotated (CCW, S/F at grandstand) centerline curvature: 231-666 m, 1007-1443 m of the 1649 m lap. bank_deg +10 (sign flipped vs the old CW ring - outside/inside swap when direction reverses); VERIFY outside-edge-up on first load, flip sign if it domes inward.",
+    "_doc": "1.65 km paved oval/roval, engineered and near-flat. 3DEP sampled every 3 m over a lap this short is mostly DEM surface noise, and the 33 m default median cannot reject it: 130-236 kinks/km against a 3%-slope-change threshold, i.e. a jagged deck everywhere rather than a few bad spots. Same lever that fixed Second Creek. A graded racetrack is smooth by construction; the profile should be too.",
     "dips": [],
     "cambers": [
       {
@@ -78,7 +78,9 @@
         "bank_deg": 10.0,
         "ramp_m": 50
       }
-    ]
+    ],
+    "despike_window_m": 90.0,
+    "max_grade_pct": 4.0
   },
   "route": {
     "reverse": true,

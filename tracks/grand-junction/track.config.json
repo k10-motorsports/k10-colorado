@@ -61,9 +61,11 @@
     "_note": "Real OSM highway=raceway way 293789503 at 3002 N I-70 Frontage Rd, Grand Junction CO (Mesa County). Closed 54-node ring, native CCW winding reversed to CW. ROAD COURSE (~0.9 mi advertised, 11 turns, ~9.75 m/32 ft wide asphalt sprint/kart circuit). Flat mesa-top site north of I-70; elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking. A '1.25-mi oval/banked' web claim was a conflation with other venues and is rejected."
   },
   "road_profile": {
-    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "_doc": "1.03 km purpose-built circuit on flat Grand Valley ground. 3DEP sampled every 3 m over a lap this short is mostly DEM surface noise, and the 33 m default median cannot reject it: 130-236 kinks/km against a 3%-slope-change threshold, i.e. a jagged deck everywhere rather than a few bad spots. Same lever that fixed Second Creek. A graded racetrack is smooth by construction; the profile should be too.",
     "dips": [],
-    "cambers": []
+    "cambers": [],
+    "despike_window_m": 90.0,
+    "max_grade_pct": 4.0
   },
   "route": {
     "start_at": [
