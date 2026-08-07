@@ -58,10 +58,10 @@
   "source": {
     "type": "from_track",
     "track": "source/osm_fixes.json",
-    "_note": "Real 2.2-mi (~3510 m) paved ROAD COURSE at Pueblo Motorsports Park, 3733 N Pueblo Blvd, Pueblo CO. From OSM highway=raceway ways 558378826+558378823+558378824 (drag-strip staging spur excluded). Native ring winding is CW; fixes kept CW. Resampled to 3 m via scripts.gps.from_track. Flat/rolling road course \u2014 elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking (not an oval)."
+    "_note": "Real 2.2-mi (~3510 m) paved ROAD COURSE at Pueblo Motorsports Park, 3733 N Pueblo Blvd, Pueblo CO. From OSM highway=raceway ways 558378826+558378823+558378824 (drag-strip staging spur excluded). Native ring winding is CW; fixes kept CW. Resampled to 3 m via scripts.gps.from_track. Flat/rolling road course — elevation from USGS 3DEP bare-earth (do NOT flatten); NO banking (not an oval)."
   },
   "road_profile": {
-    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "_doc": "Flat road course — no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
     "dips": [],
     "cambers": []
   },
@@ -72,6 +72,8 @@
     ],
     "_orientation_doc": "Research 2026-07-20: Pueblo Motorsports Park is CLOCKWISE ONLY (track rules); our ring is already CW. S/F on the wide west-side front straight near its south end (~38.3000,-104.6774), raced NNW-bound. Pit lane: east of the front straight (driver's right), ~350 m."
   },
-  "terrain_cell_m": 1.5,
-  "terrain_vertex_budget": 1500000
+  "terrain_cell_m": 2.0,
+  "terrain_vertex_budget": 1500000,
+  "corridor_refine_factor": 6,
+  "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)"
 }
