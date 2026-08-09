@@ -197,5 +197,6 @@
     }
   },
   "terrain_cell_m": 1.5,
+  "corridor_refine_factor": 6,
   "terrain_vertex_budget": 1500000
 }

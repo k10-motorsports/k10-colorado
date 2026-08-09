@@ -71,6 +71,7 @@
     "_orientation_doc": "Research 2026-07-20: Second Creek ran CLOCKWISE as the primary direction (SCCA-CDR kept separate CW/CCW record books; CW records to 1985, CW is faster). Our ring was CCW -> reverse. S/F on the Buckley Straight (the old Denver Dragway strip, west edge, cars heading NORTH into the Oval Turn), ~39.8595,-104.7896. Pit Road ~280 m on the WEST side of the straight (driver's left), entry mid-straight, exit at the Oval Turn. A CCW layout (2001-2005 era) is a future variant."
   },
   "terrain_cell_m": 1.25,
+  "corridor_refine_factor": 6,
   "terrain_vertex_budget": 1500000,
   "road_profile": {
     "despike_window_m": 120.0,
