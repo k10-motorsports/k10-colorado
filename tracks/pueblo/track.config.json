@@ -2,7 +2,7 @@
   "archetype": "race_circuit",
   "name": "Pueblo Motorsports Park",
   "slug": "pueblo_motorsports_park",
-  "version": "0.1.1",
+  "version": "0.66.3",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
@@ -75,5 +75,8 @@
   "terrain_cell_m": 2.0,
   "terrain_vertex_budget": 1500000,
   "corridor_refine_factor": 6,
-  "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)"
+  "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)",
+  "ui_tags": [
+    "circuit"
+  ]
 }

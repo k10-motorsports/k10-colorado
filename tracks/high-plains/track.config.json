@@ -2,7 +2,7 @@
   "archetype": "race_circuit",
   "name": "High Plains Raceway",
   "slug": "high_plains",
-  "version": "0.2.0",
+  "version": "0.66.3",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 12.0,
@@ -58,7 +58,7 @@
   "source": {
     "type": "from_track",
     "track": "source/osm_fixes.json",
-    "_note": "RE-SOURCED 2026-07-25 from the REAL High Plains Raceway at 93301 E US Hwy 36, Deer Trail CO (39.7353,-103.8980). Replaces fabricated compressed lat/lon traced off the old unified map (which placed it at 39.67,-104.77, ~70 km away). Geometry is the closed cycle of OSM highway=raceway ways: Short North, Bikers Berm, Niagara, Dannys Lesson, High Plains Drifter, Prarie Corkscrew, Full West + one unnamed link = 3220 m (2.00 mi). The north section (To Hell On A Bobsled / Ladder To Heaven) is EXCLUDED: its south end is unmapped in OSM, leaving a 110 m gap that would have to be invented to close the full 2.55-mile course (LAWS L1 \u2014 never invent geometry). Add it by tracing that 110 m off a georeferenced aerial, then re-chain. Pit Lane excluded (not the racing line). Winding CW to match the other CO circuits. Elevation from USGS 3DEP at the real site.",
+    "_note": "RE-SOURCED 2026-07-25 from the REAL High Plains Raceway at 93301 E US Hwy 36, Deer Trail CO (39.7353,-103.8980). Replaces fabricated compressed lat/lon traced off the old unified map (which placed it at 39.67,-104.77, ~70 km away). Geometry is the closed cycle of OSM highway=raceway ways: Short North, Bikers Berm, Niagara, Dannys Lesson, High Plains Drifter, Prarie Corkscrew, Full West + one unnamed link = 3220 m (2.00 mi). The north section (To Hell On A Bobsled / Ladder To Heaven) is EXCLUDED: its south end is unmapped in OSM, leaving a 110 m gap that would have to be invented to close the full 2.55-mile course (LAWS L1 — never invent geometry). Add it by tracing that 110 m off a georeferenced aerial, then re-chain. Pit Lane excluded (not the racing line). Winding CW to match the other CO circuits. Elevation from USGS 3DEP at the real site.",
     "_width_note": "default_width_m 12.0 is INHERITED FROM THE FABRICATED CONFIG and unverified against the real circuit."
   },
   "route": {
@@ -66,9 +66,12 @@
       39.67456,
       -104.77141
     ],
-    "_orientation_doc": "Research 2026-07-20: High Plains Raceway runs CLOCKWISE (PCA turn guide + LapMeta, 15 turns, 2.56 mi). Our ring is already CW. REAL S/F: mid front straight (~370 m, WSW->ENE ~102 deg, between the Prairie Corkscrew exit and T1) at real-world ~39.7350,-103.8946 \u2014 but THIS trace lives in a displaced frame (~77 km off; re-source pending per CLAUDE.md), so start_at is the matching straight IN THE TRACE'S OWN FRAME: the 207 m straight bearing 115.7 deg, midpoint 39.67456,-104.77141. Re-derive when re-sourced. Pit lane: real hot pits on the NORTH side of the front straight (driver's left), ~690 m incl. entry/exit; entry before S/F at the corkscrew exit, exit wraps outside T1-T2 and merges at T2 exit."
+    "_orientation_doc": "Research 2026-07-20: High Plains Raceway runs CLOCKWISE (PCA turn guide + LapMeta, 15 turns, 2.56 mi). Our ring is already CW. REAL S/F: mid front straight (~370 m, WSW->ENE ~102 deg, between the Prairie Corkscrew exit and T1) at real-world ~39.7350,-103.8946 — but THIS trace lives in a displaced frame (~77 km off; re-source pending per CLAUDE.md), so start_at is the matching straight IN THE TRACE'S OWN FRAME: the 207 m straight bearing 115.7 deg, midpoint 39.67456,-104.77141. Re-derive when re-sourced. Pit lane: real hot pits on the NORTH side of the front straight (driver's left), ~690 m incl. entry/exit; entry before S/F at the corkscrew exit, exit wraps outside T1-T2 and merges at T2 exit."
   },
   "terrain_cell_m": 1.5,
   "corridor_refine_factor": 6,
-  "terrain_vertex_budget": 1500000
+  "terrain_vertex_budget": 1500000,
+  "ui_tags": [
+    "circuit"
+  ]
 }

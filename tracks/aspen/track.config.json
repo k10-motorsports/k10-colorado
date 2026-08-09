@@ -2,7 +2,7 @@
   "archetype": "race_circuit",
   "name": "Aspen Motorsports Park",
   "slug": "aspen_motorsports_park",
-  "version": "0.1.1",
+  "version": "0.66.3",
   "mirror_x": true,
   "loop": true,
   "default_width_m": 9.0,
@@ -61,7 +61,7 @@
     "_note": "Real Aspen Motorsports Park (550 Raceway Rd, Woody Creek, CO). From OSM highway=raceway way 192313782 (1-mile road course), native CCW winding reversed to CW, resampled to 3 m via scripts.gps.from_track. Elevation from USGS 3DEP bare-earth (mountain site, do NOT flatten); NO banking (road course)."
   },
   "road_profile": {
-    "_doc": "Flat road course \u2014 no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
+    "_doc": "Flat road course — no banking. dips/cambers intentionally empty; deck follows bare-earth 3DEP.",
     "dips": [],
     "cambers": []
   },
@@ -74,5 +74,8 @@
   },
   "terrain_cell_m": 1.5,
   "corridor_refine_factor": 6,
-  "terrain_vertex_budget": 1500000
+  "terrain_vertex_budget": 1500000,
+  "ui_tags": [
+    "circuit"
+  ]
 }

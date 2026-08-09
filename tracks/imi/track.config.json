@@ -2,7 +2,7 @@
   "archetype": "race_circuit",
   "name": "IMI Motorsports Complex",
   "slug": "imi_motorsports",
-  "version": "0.1.1",
+  "version": "0.66.3",
   "location": {
     "lat": 40.0423,
     "lon": -104.9482,
@@ -215,5 +215,8 @@
   "terrain_cell_m": 1.25,
   "terrain_vertex_budget": 1500000,
   "corridor_refine_factor": 6,
-  "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)"
+  "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)",
+  "ui_tags": [
+    "circuit"
+  ]
 }
