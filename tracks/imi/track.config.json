@@ -218,5 +218,6 @@
   "_terrain_note": "L3b: cells finer than the road; excursion drops at the 5.0 default gated the v0.63.0 build (2026-08-07)",
   "ui_tags": [
     "circuit"
-  ]
+  ],
+  "natural_ground": true
 }
